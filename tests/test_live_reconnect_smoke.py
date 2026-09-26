@@ -9,21 +9,22 @@ respawn) -- the exact "killed and restarted mid-conversation" scenario
 PLAN.md flagged as unverified. It does the analogous thing for Piper
 (binary temporarily unresolvable, then resolvable again).
 
-Needs real hardware/binaries (whisper-server, piper, a whisper model)
-and touches real ports/processes, so -- like the rest of this
-directory -- it isn't meant for CI. It never touches the project's own
-whisper.cpp server (config.yaml's stt.whisper_server_url / whatever is
-already running for normal use, e.g. port 8081); it spins up and tears
-down its own instance on WHISPER_TEST_PORT below.
-
-Requires LM Studio is NOT exercised here (no local LM Studio server was
-running in the environment this was written in, and it isn't a
-persistent process that can crash the same way mid-request the way
-whisper.cpp/Piper can -- ChatClient's reconnect path is already covered
-by mocks in test_service_reconnect.py). If you have LM Studio running,
-you can verify the same way by hand: pause/kill `lms server` mid-reply
-and confirm main.py's LM Studio branch waits and resumes instead of
-crashing.
+Needs real hardware/binaries (whisper-server, piper, a whisper model,
+and -- for the LM Studio case -- a running LM Studio server with a
+model loaded) and touches real ports/processes, so -- like the rest of
+this directory -- it isn't meant for CI. It never touches the project's
+own whisper.cpp server (config.yaml's stt.whisper_server_url / whatever
+is already running for normal use, e.g. port 8081) or the project's own
+LM Studio server; it spins up and tears down its own throwaway whisper
+instance on WHISPER_TEST_PORT below, and for LM Studio it never kills
+the real app (a GUI app with no scripted restart available here) --
+instead it points a ChatClient at a genuinely closed port first (a real
+refused connection, not mocked), then retargets it at the real,
+already-running LM Studio server on a delayed background thread, which
+exercises the identical is_available()/LlmUnavailableError/
+call_with_reconnect path a real crash-and-restart would. If LM Studio
+isn't reachable at startup, that one test is skipped (with a note) and
+the rest still run.
 
 Usage (from anywhere; it locates the project root itself):
     venv/bin/python tests/test_live_reconnect_smoke.py
@@ -39,9 +40,12 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import requests
+
 import main  # noqa: E402
 from audio.echo_cancel import resample_linear  # noqa: E402
 from audio.playback import decode_wav_bytes  # noqa: E402
+from llm.chat_client import ChatClient  # noqa: E402
 from stt.whisper_client import WhisperClient  # noqa: E402
 from tts.tts_client import PiperTTS  # noqa: E402
 
@@ -181,8 +185,66 @@ def test_piper_real_binary_recovery():
     check("synthesize() returns real WAV bytes once Piper is back", wav_bytes[:4] == b"RIFF")
 
 
+def test_llm_real_connection_recovery():
+    cfg = main.load_config()
+    real_base_url = cfg["llm"]["base_url"]
+    model = cfg["llm"]["model"]
+
+    try:
+        requests.get(real_base_url.rstrip("/") + "/models", timeout=3).raise_for_status()
+    except requests.RequestException as exc:
+        print(f"SKIP LM Studio live test: real server at {real_base_url} not reachable ({exc})")
+        return
+
+    # Genuinely closed port -- a real refused connection, not a mocked
+    # exception -- standing in for "LM Studio just crashed". We never
+    # kill the user's actual running LM Studio/Bionic process here: it's
+    # a GUI app with no scripted restart available in this environment,
+    # so instead we retarget the same ChatClient at the real server on a
+    # delayed background thread, exercising the identical
+    # is_available()/LlmUnavailableError/call_with_reconnect path a real
+    # crash-and-restart would.
+    chat = ChatClient(base_url="http://127.0.0.1:19999/v1", model=model, context_limit=8192, request_timeout_s=5)
+    history_before = list(chat.history)
+
+    check("is_available() is False against a genuinely closed port", not chat.is_available())
+
+    try:
+        chat.ask("hello")
+        raised = False
+    except Exception as exc:
+        raised = type(exc).__name__ == "LlmUnavailableError"
+        print(f"  ask() against the closed port raised: {exc}")
+    check("ask() against a real closed port raises LlmUnavailableError", raised)
+    check("ask()'s failed attempt left history exactly as it was before", chat.history == history_before)
+
+    def delayed_retarget():
+        time.sleep(3)
+        print(f"  (background) retargeting ChatClient at the real LM Studio server ({real_base_url})...")
+        chat.client.base_url = real_base_url
+
+    threading.Thread(target=delayed_retarget, daemon=True).start()
+
+    t0 = time.time()
+    reply = main.call_with_reconnect(
+        lambda: chat.ask("Reply with only the single word: RECONNECTED"),
+        "LM Studio",
+        chat.is_available,
+        poll_interval_s=0.5,
+    )
+    elapsed = time.time() - t0
+    print(f"  recovered reply from the real model: {reply!r} (waited {elapsed:.1f}s)")
+    check("call_with_reconnect waited for the real server to become reachable (>2s)", elapsed > 2.0)
+    check("ask() returned a real reply from the live LM Studio model after reconnecting", bool(reply))
+    check(
+        "history has exactly one clean user/assistant pair after the recovered call",
+        [m["role"] for m in chat.history if m["role"] != "system"] == ["user", "assistant"],
+    )
+
+
 test_whisper_real_crash_and_restart()
 test_piper_real_binary_recovery()
+test_llm_real_connection_recovery()
 
 print()
 print(f"{sum(results)}/{len(results)} passed")

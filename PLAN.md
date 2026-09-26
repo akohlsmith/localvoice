@@ -267,9 +267,28 @@ without re-deriving the whole design.
       `call_with_reconnect` genuinely blocked, noticed the respawn, and
       returned the correct transcription; same pattern for Piper
       (binary path swapped to bogus, then back, on a timer). LM Studio's
-      reconnect path is still only covered by the mock in
-      `test_service_reconnect.py` -- no LM Studio server was running (and
-      no `lms` CLI on PATH) in the environment this was verified in.
+      reconnect path was verified live too, once a real LM Studio server
+      came up on the machine this was tested on: rather than killing the
+      user's actual running server (a GUI app with no scripted restart
+      available), the test pointed a real `ChatClient` at a genuinely
+      closed port (a real OS-level connection refusal) to get a real
+      `LlmUnavailableError`/`is_available() == False`, then retargeted
+      the same client at the real, already-running server on a delayed
+      background thread — `call_with_reconnect` waited (~4.9s) and came
+      back with an actual completion from the real loaded model
+      (`google/gemma-4-26b-a4b-qat`, which replied exactly
+      "RECONNECTED" as asked), with history left as a clean single
+      user/assistant pair, not a dangling duplicate. All three services'
+      reconnect paths are now verified against real processes, not just
+      mocks (`tests/test_live_reconnect_smoke.py`).
+
+      Aside, unrelated to this fix: the LM Studio server encountered
+      during that live run was a process named `Bionic`, which
+      CLAUDE.md explicitly says this project should not use (core
+      LM Studio app only). It answered the OpenAI-compatible API
+      correctly and served the exact model config.yaml expects, so the
+      test itself is unaffected, but flagged to the user in case that
+      wasn't the intended app to have running.
 - Echo cancellation convergence is still a fixed timer
   (`barge_in.grace_period_ms`), not a measured/detected convergence
   state. For at least one reply text, the echo canceller hasn't fully
