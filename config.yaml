@@ -1,0 +1,34 @@
+# LocalVoice configuration.
+# All pipeline stages read from this file — nothing below should be hardcoded
+# elsewhere in the codebase.
+
+llm:
+  base_url: "http://localhost:1234/v1"   # LM Studio's OpenAI-compatible server
+  model: "REPLACE_WITH_YOUR_LOADED_MODEL_ID"  # see `lms ps` once a model is loaded
+  system_prompt: >
+    You are a concise, helpful voice assistant. Keep responses short and
+    conversational, since they will be spoken aloud rather than read.
+  temperature: 0.7
+
+stt:
+  # A whisper.cpp `server` binary running separately, holding a ggml model
+  # resident in memory. See README.md for how to start it.
+  whisper_server_url: "http://localhost:8081"
+  language: "en"
+
+tts:
+  engine: "piper"
+  piper_binary: "piper"          # override with a full path if not on PATH
+  piper_model: "en_US-lessac-medium.onnx"
+  piper_model_config: "en_US-lessac-medium.onnx.json"
+
+vad:
+  speech_prob_threshold: 0.5     # Silero VAD speech probability cutoff
+  silence_hangover_ms: 700       # trailing silence before a turn is considered over
+  min_speech_ms: 250              # ignore blips shorter than this (coughs, taps)
+
+audio:
+  sample_rate: 16000              # required by Silero VAD and whisper.cpp
+  channels: 1
+  input_device: null               # sounddevice device index; null = system default
+  output_device: null

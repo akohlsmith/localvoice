@@ -1,0 +1,6 @@
+sounddevice
+numpy
+pyyaml
+openai>=1.0.0
+torch
+requests
