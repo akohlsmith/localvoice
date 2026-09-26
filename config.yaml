@@ -32,7 +32,10 @@ wake_word:
   enabled: false
   phrase: "gemma"                 # soft-g "Gemma" — matches the LLM model's name
   silence_before_ms: 1500          # required quiet stretch before a wake-word attempt is even considered
-  silence_hangover_ms: 500         # shorter than vad's — a single word ends faster than a sentence
+  silence_hangover_ms: 300         # trailing silence to end the wake-word utterance — kept short so
+                                    # continuing straight into your query doesn't feel like a long pause,
+                                    # but the remainder-after-the-phrase handling below means the exact
+                                    # value here mostly affects the gap between "no pause" and "one pause"
   min_speech_ms: 150               # a wake word is much shorter than a normal utterance
   # Music/background noise is filtered two ways: Silero VAD has to think it's speech at
   # all, AND (since this only ever looks at short candidates following real silence) it

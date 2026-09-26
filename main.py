@@ -137,19 +137,31 @@ def main():
                 if candidate is None:
                     continue
                 heard = stt.transcribe(candidate, prompt=wake_prompt)
-                if wake_phrase.lower() not in heard.lower():
+                lowered = heard.lower()
+                match_index = lowered.find(wake_phrase.lower())
+                if match_index == -1:
                     continue
-                print(f"Wake word heard — listening...")
+                print("Wake word heard — listening...")
                 listening_for_wake_word = False
-                continue
 
-            utterance = turn_detector.process_chunk(chunk)
-            if utterance is None:
-                continue
+                # If the user kept talking right after the wake word with no
+                # pause, whisper transcribes it all as one utterance — the
+                # part after the phrase is the start of their actual query,
+                # not a separate thing to wait for. Losing this was the bug:
+                # only the yes/no wake-word match used to survive, and
+                # whatever came with it in the same breath was discarded.
+                remainder = heard[match_index + len(wake_phrase) :].strip().strip(",.!?—-").strip()
+                if not remainder:
+                    continue
+                text = remainder
+            else:
+                utterance = turn_detector.process_chunk(chunk)
+                if utterance is None:
+                    continue
 
-            text = stt.transcribe(utterance)
-            if not text:
-                continue
+                text = stt.transcribe(utterance)
+                if not text:
+                    continue
             print(f"You said: {text}")
 
             reply = chat.ask(text)
