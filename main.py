@@ -69,6 +69,18 @@ def speak_with_barge_in(
         ref_audio = resample_linear(raw_ref, ref_sr, echo_canceller.sample_rate)
         echo_canceller.reset()
 
+    # Between the last chunk of the user's utterance and here, STT + the LLM
+    # call + TTS synthesis all block for real time while the mic keeps
+    # queuing chunks nobody's consuming. Without draining that backlog, the
+    # first chunks pulled below would be a burst of stale pre-reply audio
+    # consumed almost instantly (queue already has the data, no real wait) --
+    # which desyncs both the echo canceller's reference alignment (which
+    # assumes one chunk per loop iteration tracks real elapsed time) and the
+    # grace period (counted in chunks, so it'd elapse in a fraction of a
+    # real second instead of grace_period_ms). Confirmed by reproducing it:
+    # a 3.5s gap before this point queued 109 backlogged chunks and caused
+    # an early false trigger at 1.9s elapsed, well inside the grace period.
+    mic.drain()
     playback.play_wav_bytes_async(wav_bytes)
     consecutive_speech = 0
     chunk_index = 0

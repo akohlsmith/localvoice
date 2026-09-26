@@ -106,11 +106,27 @@ without re-deriving the whole design.
   the filter needs ~1-2s of real audio to converge at all, so
   `barge_in.grace_period_ms` fully disables the trigger check (not
   just loosens it) for that long at the start of every reply, while
-  the canceller still runs and adapts. Verified over 10 consecutive
-  live runs (mixed short/long replies) with zero false triggers, after
-  runs without the grace period showed occasional (~1 in 4) early false
-  triggers within that same initial window. Headphones remain a
-  simpler, fully-robust alternative if echo cancellation ever proves
-  unreliable on a different machine — recalibrating
+  the canceller still runs and adapts. Headphones remain a simpler,
+  fully-robust alternative if echo cancellation ever proves unreliable
+  on a different machine — recalibrating
   `echo_cancel.expected_delay_ms`/`filter_length_ms` there is the first
   thing to try (see config.yaml's comments).
+
+  Still self-interrupted after the above, on a real wake-word ->
+  arithmetic-question exchange. Root cause: `MicStream`'s queue keeps
+  queuing chunks continuously, including through the STT + LLM call +
+  TTS synthesis that all block for real time between capturing the
+  user's utterance and calling `speak_with_barge_in` — nobody's
+  consuming the queue during that gap, so it backlogs (confirmed: a
+  3.5s gap queued 109 chunks). The first chunks pulled afterward were
+  then a burst of stale pre-reply audio consumed almost instantly
+  (already sitting in the queue, no real wait) — desyncing both the
+  echo canceller's reference alignment (assumes one chunk per loop
+  iteration ≈ real elapsed time) and the grace period (counted in
+  chunks, so it elapsed in a fraction of a real second rather than
+  `grace_period_ms`). Fixed with `MicStream.drain()`, called at the
+  start of `speak_with_barge_in` right before playback starts, so
+  monitoring always begins from a clean "now" regardless of how long
+  the preceding turn took to think. Re-verified across 6 runs with
+  backlogs from 1 to 156 chunks (0.05s-5s of accumulated delay) — all
+  passed, including the exact backlog size that reproduced the bug.

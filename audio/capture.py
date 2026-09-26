@@ -50,3 +50,21 @@ class MicStream:
         """
         while True:
             yield self._q.get()
+
+    def drain(self):
+        """Discards any chunks queued but not yet consumed.
+
+        The callback keeps queuing chunks continuously, including while
+        nobody's pulling from chunks() (e.g. during a blocking STT/LLM/TTS
+        call). Without this, the next chunks() consumed after such a gap
+        would be a burst of stale, already-past audio rather than
+        real-time input -- which breaks anything that assumes "one chunk
+        pulled per loop iteration" tracks real elapsed time, such as
+        speak_with_barge_in's echo-canceller reference alignment and grace
+        period.
+        """
+        while True:
+            try:
+                self._q.get_nowait()
+            except queue.Empty:
+                return
