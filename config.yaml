@@ -15,6 +15,16 @@ llm:
     the response worse, not better.
   temperature: 0.7
 
+  # The model's actual context window is queried at startup from LM
+  # Studio's own extended REST API (/api/v0/models -- not part of the
+  # OpenAI-compatible surface, so no config value needed for the limit
+  # itself). Once the conversation's token usage reaches this fraction
+  # of that limit, main.py speaks a brief notice and compacts the
+  # conversation history down to a summary before the next turn, rather
+  # than waiting until a request is right at (or over) the limit and
+  # risking it being rejected or silently truncated by the server.
+  context_compaction_threshold: 0.8
+
 stt:
   # A whisper.cpp `server` binary running separately, holding a ggml model
   # resident in memory. See README.md for how to start it.

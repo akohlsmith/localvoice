@@ -25,6 +25,7 @@ from tts.tts_client import PiperTTS
 
 CHUNK_SAMPLES = 512  # required window size for Silero VAD at 16kHz
 DEFAULT_CANCEL_PHRASES = ["cancel", "nevermind", "never mind", "forget it"]
+COMPACTION_NOTICE = "One moment, I'm compacting our conversation to keep things running smoothly."
 
 
 def load_config(path="config.yaml"):
@@ -280,7 +281,10 @@ def main():
         temperature=cfg["llm"].get("temperature", 0.7),
         tools=tool_schemas,
         tool_dispatch=tool_dispatch,
+        compaction_threshold=cfg["llm"].get("context_compaction_threshold", 0.8),
     )
+    if chat.context_limit is None:
+        print("(context length not available from this server -- automatic compaction disabled)")
 
     print("Listening... (Ctrl+C to quit)" if not listening_for_wake_word else f'Waiting for "{wake_phrase}"...')
     mic.start()
@@ -373,6 +377,22 @@ def main():
                 noise_reducer,
             ):
                 print("(interrupted)")
+
+            if chat.needs_compaction():
+                print(f"(context at {chat.last_total_tokens}/{chat.context_limit} tokens -- compacting)")
+                notice_wav = tts.synthesize(COMPACTION_NOTICE)
+                speak_with_barge_in(
+                    notice_wav,
+                    mic,
+                    turn_detector,
+                    barge_in_prob_threshold,
+                    barge_in_consecutive_frames,
+                    echo_canceller,
+                    grace_period_chunks,
+                    noise_reducer,
+                )
+                chat.compact()
+                print("(context compacted)")
 
             if wake_enabled:
                 listening_for_wake_word = True

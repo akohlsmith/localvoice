@@ -7,9 +7,35 @@ requires a non-empty string, hence the placeholder below.
 import json
 import re
 
+import requests
 from openai import OpenAI
 
 MAX_TOOL_ITERATIONS = 5  # guards against a runaway tool-call loop
+
+
+def _fetch_context_length(base_url: str, model: str) -> int:
+    """Best-effort: asks LM Studio's own extended REST API (not part of
+    the OpenAI-compatible surface) for the currently loaded context
+    length of `model`, e.g. http://localhost:1234/api/v0/models ->
+    {"data": [{"id": "...", "loaded_context_length": 262144, ...}]}.
+
+    Returns None if the server doesn't expose this (a different
+    OpenAI-compatible backend, or an older LM Studio) -- callers must
+    treat that as "unknown, don't try to compact" rather than guessing
+    a number, since a wrong guess could compact either too early or
+    too late.
+    """
+    try:
+        root = base_url.rsplit("/v1", 1)[0]
+        resp = requests.get(f"{root}/api/v0/models", timeout=5)
+        resp.raise_for_status()
+        for entry in resp.json().get("data", []):
+            if entry.get("id") == model:
+                return entry.get("loaded_context_length") or entry.get("max_context_length")
+    except (requests.RequestException, ValueError, KeyError):
+        pass
+    return None
+
 
 # Confirmed live: when this model is pushed to use a tool that isn't
 # actually registered with the API (tools=None/[] on this request), it
@@ -40,15 +66,94 @@ class ChatClient:
         temperature: float = 0.7,
         tools: list = None,
         tool_dispatch=None,
+        context_limit: int = None,
+        compaction_threshold: float = 0.8,
     ):
         self.client = OpenAI(base_url=base_url, api_key="lm-studio")
         self.model = model
         self.temperature = temperature
         self.tools = tools
         self.tool_dispatch = tool_dispatch
+        self.system_prompt = system_prompt
+        self.compaction_threshold = compaction_threshold
         self.history = []
         if system_prompt:
             self.history.append({"role": "system", "content": system_prompt})
+
+        # context_limit=None (the default) means "query LM Studio for it";
+        # pass an explicit int to override, or to skip the query for a
+        # backend that doesn't support it. Either way, None here means
+        # needs_compaction() can never fire -- no size to compare against.
+        self.context_limit = context_limit if context_limit is not None else _fetch_context_length(base_url, model)
+        self.last_total_tokens = None
+
+    def _record_usage(self, response):
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            self.last_total_tokens = usage.total_tokens
+
+    def needs_compaction(self) -> bool:
+        if self.context_limit is None or self.last_total_tokens is None:
+            return False
+        return self.last_total_tokens >= self.compaction_threshold * self.context_limit
+
+    def compact(self):
+        """Replaces the turn-by-turn history with a single condensed
+        summary, freeing up context. Called by main.py (after speaking a
+        brief notice) once needs_compaction() says it's time.
+
+        Keeps the system prompt as-is; asks the model itself to
+        summarize everything else (skipping raw tool-call plumbing,
+        which is noisy and not useful once compacted) into a short note,
+        then seeds history with that note as if the user and assistant
+        had already covered it -- so the model has continuity without
+        carrying every prior message verbatim.
+        """
+        conversation = [m for m in self.history if m["role"] != "system"]
+        if not conversation:
+            return
+
+        transcript_lines = []
+        for m in conversation:
+            role = m["role"]
+            if role == "tool":
+                continue  # raw scraped page text etc. -- noisy, not needed in a summary
+            content = m.get("content") or ""
+            if not content:
+                continue
+            transcript_lines.append(f"{role}: {content}")
+        transcript = "\n".join(transcript_lines)
+        if not transcript:
+            return
+
+        summary_response = self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Summarize the following conversation concisely, in "
+                        "third person, keeping any facts, names, "
+                        "preferences, or open threads that would matter for "
+                        "continuing it naturally. This will replace the raw "
+                        "conversation in an assistant's context, not be "
+                        "shown to anyone directly."
+                    ),
+                },
+                {"role": "user", "content": transcript},
+            ],
+            temperature=0.3,
+        )
+        summary = summary_response.choices[0].message.content
+
+        self.history = []
+        if self.system_prompt:
+            self.history.append({"role": "system", "content": self.system_prompt})
+        self.history.append(
+            {"role": "user", "content": f"(For context, here is a summary of our conversation so far: {summary})"}
+        )
+        self.history.append({"role": "assistant", "content": "Got it, I'll keep that in mind."})
+        self.last_total_tokens = None
 
     def ask(self, user_text: str) -> str:
         """Blocking, non-streaming call. Returns the final reply and updates
@@ -63,6 +168,7 @@ class ChatClient:
                 tools=self.tools if self.tools else None,
             )
             message = response.choices[0].message
+            self._record_usage(response)
 
             if not message.tool_calls:
                 reply = message.content

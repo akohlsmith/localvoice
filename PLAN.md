@@ -161,6 +161,31 @@ without re-deriving the whole design.
       false`); the module docstring and config.yaml's comments carry
       the full reasoning for anyone retuning it against a real vehicle
       recording.
+- [x] **11. Automatic context compaction** — `llm/chat_client.py`
+      queries LM Studio's own extended REST API
+      (`/api/v0/models`, not part of the OpenAI-compatible surface) at
+      startup for the loaded model's actual context length, and reads
+      `usage.total_tokens` off every chat completion response to track
+      how full the conversation actually is — no separate tokenizer or
+      guesswork needed, both come straight from the server. Once usage
+      reaches `llm.context_compaction_threshold` (0.8 by default) of
+      that limit, `main.py` speaks a brief notice
+      ("One moment, I'm compacting our conversation...") and calls
+      `ChatClient.compact()`, which asks the model to summarize the
+      conversation so far (skipping raw tool-call/tool-result plumbing,
+      which is noisy and not useful once compacted) and replaces the
+      full turn-by-turn history with just the system prompt plus that
+      summary. Verified end-to-end against the real server with an
+      artificially tiny `context_limit`: usage tracked correctly turn
+      by turn, compaction triggered at the right threshold, and a
+      follow-up question after compaction ("what city do I live in
+      again?") was answered correctly from the summary alone. If the
+      server doesn't expose `/api/v0/models` (a different
+      OpenAI-compatible backend, or an older LM Studio),
+      `context_limit` stays `None` and compaction simply never
+      triggers, rather than guessing a number that could compact too
+      early or too late — `main.py` prints a note at startup when this
+      happens.
 
 ## Known gaps / things to watch
 
