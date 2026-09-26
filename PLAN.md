@@ -86,13 +86,45 @@ without re-deriving the whole design.
       a real, isolated Brave profile (`tools.browser.profile_dir` in
       `config.yaml`, separate from the everyday Brave profile/cookies —
       `scripts/prime_browser_profile.py` selectively copies specific
-      site cookies in if a tool call needs a logged-in session). Off by
-      default (`tools.browser.enabled: false`) — flip it on to
-      use it. Note: true headless Chromium gets served a CAPTCHA by
-      search.brave.com specifically; `tools/browser.py` works around
-      this by running headed-but-off-screen instead (see its
-      docstring). Shell/exec tool access was deliberately deferred —
-      no code for it exists yet.
+      site cookies in if a tool call needs a logged-in session). Note:
+      true headless Chromium gets served a CAPTCHA by search.brave.com
+      specifically; `tools/browser.py` works around this by running
+      headed-but-off-screen instead (see its docstring). Shell/exec
+      tool access was deliberately deferred — no code for it exists
+      yet.
+
+      Enabled by default now (`tools.browser.enabled: true`) after
+      fixing a real bug: with it off, a user asking for something that
+      needs a live lookup (e.g. "what's the current price of diesel in
+      Irvine, California") would get an answer from the model's stale
+      internal knowledge, or worse — pushed hard enough to "use the
+      tool", the model doesn't just refuse or guess, it can hallucinate
+      its own tool-call syntax as plain text content, e.g.
+      `<|tool_call>call:brave_search:search{queries:["..."]}<tool_call|>`,
+      confirmed live against the actual LM Studio server. Since
+      `message.tool_calls` is empty in that case (no tools were ever
+      registered with the API request), that raw text fell through
+      `ChatClient.ask()`'s existing logic as a normal reply and got
+      spoken by Piper verbatim — reported as "tool tags sent to the
+      audio channel". Root cause was `tools.browser.enabled: false`
+      meaning no `tools` array was ever sent to the model at all, so a
+      user request that implied tool use had no structured mechanism to
+      satisfy it. Fixed three ways: (1) enabled the tool for real, so
+      genuine `tool_calls` fire (confirmed clean end-to-end: real
+      `web_search` dispatch, real result fed back, clean final answer,
+      no leaked tags); (2) `main.py` now appends an explicit "you have
+      real tools, you must use them for current/real-time info, never
+      guess or claim no access" instruction to the system prompt, but
+      *only* when tools are actually registered — telling the model it
+      has tools it doesn't have is exactly what caused the
+      hallucination, so this must stay conditional, never a static
+      addition to `config.yaml`'s own `system_prompt`; (3) added
+      `llm/chat_client.py`'s `_looks_like_leaked_tool_call()` as
+      defense-in-depth — if a reply ever still looks like leaked
+      tool-call syntax (a model hiccup, a future config/prompt
+      mismatch), it's discarded in favor of a short fallback reply
+      instead of being spoken verbatim, same rationale as
+      `tts/tts_client.py`'s markdown stripping.
 - [x] **10. Noise reduction** — for highway-speed vehicle use.
       `audio/noise_reduce.py`'s `NoiseReducer` runs two stages on every
       mic chunk (applied in the main loop before `turn_detector`/

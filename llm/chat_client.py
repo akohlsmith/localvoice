@@ -5,10 +5,30 @@ requires a non-empty string, hence the placeholder below.
 """
 
 import json
+import re
 
 from openai import OpenAI
 
 MAX_TOOL_ITERATIONS = 5  # guards against a runaway tool-call loop
+
+# Confirmed live: when this model is pushed to use a tool that isn't
+# actually registered with the API (tools=None/[] on this request), it
+# doesn't just refuse or guess -- it can hallucinate its own tool-call
+# syntax as plain text content, e.g.
+#   <|tool_call>call:brave_search:search{queries:["..."]}<tool_call|>
+# Since message.tool_calls is empty in that case, this text falls
+# through as a normal reply and would otherwise get spoken verbatim.
+# The real fix is making sure tools are actually registered whenever the
+# system prompt says they're available (see main.py) -- this is
+# defense-in-depth for whatever slips through anyway (a model hiccup, a
+# future prompt/config mismatch), same rationale as tts/tts_client.py's
+# markdown stripping.
+_LEAKED_TOOL_CALL = re.compile(r"<\|?/?\s*(tool_call|tool_code|function_call)\s*\|?/?>", re.IGNORECASE)
+FALLBACK_REPLY = "Sorry, I had trouble with that -- could you try asking again?"
+
+
+def _looks_like_leaked_tool_call(text: str) -> bool:
+    return bool(text) and bool(_LEAKED_TOOL_CALL.search(text))
 
 
 class ChatClient:
@@ -46,6 +66,9 @@ class ChatClient:
 
             if not message.tool_calls:
                 reply = message.content
+                if _looks_like_leaked_tool_call(reply):
+                    print(f"[ChatClient] discarding hallucinated tool-call text: {reply!r}")
+                    reply = FALLBACK_REPLY
                 self.history.append({"role": "assistant", "content": reply})
                 return reply
 

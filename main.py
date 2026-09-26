@@ -241,6 +241,7 @@ def main():
     browser = None
     tool_schemas = None
     tool_dispatch = None
+    system_prompt = cfg["llm"].get("system_prompt", "")
     browser_cfg = cfg.get("tools", {}).get("browser", {})
     if browser_cfg.get("enabled"):
         from tools.browser import BraveTools
@@ -253,11 +254,29 @@ def main():
         )
         tool_schemas = TOOL_SCHEMAS
         tool_dispatch = build_dispatcher(browser)
+        # Only true when tools are actually registered with the API below --
+        # telling the model it has tools it doesn't have is what caused it to
+        # hallucinate its own tool-call syntax as spoken text in the first
+        # place (see PLAN.md's tool-use section). Also: without an explicit
+        # "you must call this, don't guess" instruction, smaller/quantized
+        # models often skip the tool and answer from stale internal
+        # knowledge instead, even when the schema is right there.
+        system_prompt += (
+            "\n\nYou have real tools available: web_search and web_fetch, "
+            "which load real, current web pages through a real browser. "
+            "When a question depends on current, real-time, or "
+            "location-specific information you cannot know for certain -- "
+            "prices, weather, news, sports scores, stock prices, and "
+            "similar -- you must call web_search (or web_fetch) to get a "
+            "real answer. Never guess, estimate, or answer from memory for "
+            "this kind of question, and never say you do not have access "
+            "to search or browsing -- you do."
+        )
 
     chat = ChatClient(
         base_url=cfg["llm"]["base_url"],
         model=cfg["llm"]["model"],
-        system_prompt=cfg["llm"].get("system_prompt", ""),
+        system_prompt=system_prompt,
         temperature=cfg["llm"].get("temperature", 0.7),
         tools=tool_schemas,
         tool_dispatch=tool_dispatch,

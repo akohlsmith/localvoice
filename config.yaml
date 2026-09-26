@@ -154,7 +154,7 @@ noise_reduction:
 
 tools:
   browser:
-    enabled: false
+    enabled: true
     # Isolated Brave profile, started logged out of everything — separate
     # from your everyday Brave profile/cookies. See scripts/prime_browser_profile.py
     # to selectively copy specific site logins into it if a tool call needs one.
