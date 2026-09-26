@@ -259,10 +259,17 @@ without re-deriving the whole design.
       behavior, the three `*UnavailableError` types, `is_available()`
       accuracy, `ChatClient.ask()`'s history rollback and clean retry,
       and `call_with_reconnect()`'s resume-once-available behavior — all
-      passing. Not yet verified against a real whisper.cpp/Piper/LM
-      Studio process actually being killed and restarted mid-conversation
-      live; the mocks stand in for that until it's exercised on real
-      hardware.
+      passing. Also verified live against real processes
+      (`tests/test_live_reconnect_smoke.py`, no mocking): a disposable
+      whisper.cpp server (separate port, the real one left running)
+      transcribing real Piper-synthesized audio, `SIGKILL`ed outright,
+      respawned unattended by a background thread 3s later --
+      `call_with_reconnect` genuinely blocked, noticed the respawn, and
+      returned the correct transcription; same pattern for Piper
+      (binary path swapped to bogus, then back, on a timer). LM Studio's
+      reconnect path is still only covered by the mock in
+      `test_service_reconnect.py` -- no LM Studio server was running (and
+      no `lms` CLI on PATH) in the environment this was verified in.
 - Echo cancellation convergence is still a fixed timer
   (`barge_in.grace_period_ms`), not a measured/detected convergence
   state. For at least one reply text, the echo canceller hasn't fully
