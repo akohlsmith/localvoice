@@ -44,10 +44,36 @@ barge_in:
   # per-chunk probability traces across 20 replays to find real margin
   # rather than guessing: both observed false triggers came within 1
   # chunk of still crossing even 0.93/16 (15/16 consecutive), so 0.93 and
-  # 24 are used together for real headroom rather than either bare
-  # minimum. Confirmed 0/20 replays of the same logged traces at these
-  # settings, then re-verified live (fresh trials, not just trace
-  # replay).
+  # 24 (chosen at the time) gave real headroom rather than either bare
+  # minimum.
+  #
+  # That 24 later turned out to be masking a real bug rather than being
+  # correctly tuned: main.py was skipping the speech_prob() call
+  # entirely during the grace period below (not just skipping the
+  # *action* on it), which silently starved Silero's internal streaming
+  # state and made it under-confident for a while after grace ended --
+  # real barge-in attempts stopped firing at all. Fixed (always call
+  # speech_prob(), only gate the trigger action on the grace period),
+  # and confirmed live: 4/4 real interruptions fired correctly at these
+  # same 0.93/24 values once the bug was gone.
+  #
+  # That fix also exposed a residual risk the original Monty-Hall-only
+  # tuning never exercised: at least one other reply text has leftover
+  # echo (echo canceller not fully converged by the time grace_period_ms
+  # elapses) that reaches similar sustained VAD confidence to real
+  # speech, and self-triggered live 2/3 times on that text at these
+  # settings. Pushing prob_threshold/consecutive_frames up (tried
+  # 0.93/32, then 0.97/32) did eliminate that self-trigger (6/6 clean)
+  # but also suppressed genuine interruption on the same text (0/3 real
+  # attempts fired) -- past a point, "confident echo" and "confident
+  # real speech" overlap enough on this text that threshold tuning alone
+  # can't separate them. Deliberately kept at 0.93/24 (real barge-in
+  # working reliably, a known-but-rare self-trigger risk on some reply
+  # audio) rather than trade away real functionality for a threshold
+  # that might not fire at all. The actual fix for the residual risk is
+  # a more robust echo canceller (faster/more reliable convergence, or
+  # detecting convergence directly instead of a fixed grace timer), not
+  # more threshold tweaking -- see PLAN.md.
   prob_threshold: 0.93
   consecutive_frames: 24           # ~768ms sustained -- applies AFTER the grace period below
 

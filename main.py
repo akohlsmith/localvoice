@@ -122,10 +122,22 @@ def speak_with_barge_in(
 
         in_grace_period = chunk_index < grace_period_chunks
         chunk_index += 1
+
+        # Silero VAD is a streaming model that carries internal state
+        # between calls -- it must be fed every chunk to stay "warmed up",
+        # even chunks we don't act on. Skipping speech_prob() entirely for
+        # the whole grace period (instead of just not acting on it) left
+        # the model uncalled for ~2s, and real barge-in attempts right
+        # after the grace period then scored consistently near zero even
+        # while genuinely talking (confirmed: 0/79 chunks reached the
+        # 0.93 threshold with the call skipped during grace, vs. 79
+        # reaching it, some as high as 0.9999, in the same recording with
+        # the call kept live throughout). So: always score, only gate the
+        # trigger action on the grace period.
+        prob = turn_detector.vad.speech_prob(scored_chunk)
         if in_grace_period:
             continue
 
-        prob = turn_detector.vad.speech_prob(scored_chunk)
         if prob >= prob_threshold:
             consecutive_speech += 1
             if consecutive_speech >= consecutive_frames:

@@ -132,6 +132,17 @@ without re-deriving the whole design.
 
 ## Known gaps / things to watch
 
+- Echo cancellation convergence is still a fixed timer
+  (`barge_in.grace_period_ms`), not a measured/detected convergence
+  state. For at least one reply text, the echo canceller hasn't fully
+  converged by the time the timer elapses, and the leftover echo can
+  reach VAD confidence similar to real speech -- a small residual
+  self-trigger risk that threshold tuning alone can't fully eliminate
+  without also suppressing real barge-in (see the barge-in section
+  above for the measured trade-off). The real fix is making the
+  canceller converge faster/more reliably, or detecting convergence
+  directly (e.g. from filter weight stability or residual energy)
+  instead of trusting a fixed delay for every possible reply.
 - No persistence of conversation history across restarts.
 - No handling yet for whisper.cpp or Piper being unreachable/not
   started — the loop will just raise on the first request.
@@ -206,3 +217,51 @@ without re-deriving the whole design.
   fallback if it keeps happening anyway (eliminates it entirely, since
   the mic then can't hear the
   speakers at all).
+
+  Regression found right after shipping the 0.93/24 retune above: live
+  testing found barge-in didn't fire *at all* any more, on any reply.
+  Root cause was in `main.speak_with_barge_in` itself, not the
+  thresholds: it skipped calling `turn_detector.vad.speech_prob()`
+  entirely for every chunk inside `grace_period_chunks` (not just
+  skipping the *action* on those chunks). Silero VAD is a streaming
+  model that carries internal state between calls, and starving it for
+  the whole ~2s grace period left it under-confident for a while after
+  scoring resumed -- confirmed directly (`tests/debug_grace_period_hypothesis.py`):
+  the same real interruption, scored the broken way, cleared 0.93 on
+  0/79 chunks; scored with speech_prob() called every chunk (grace flag
+  only gating the *action*, matching every diagnostic script's
+  behavior, which is why the tuning above never caught this), it
+  cleared 0.93 on 79/470 chunks, peak 0.9999. Fixed in `main.py`: always
+  call `speech_prob()`, gate only the trigger action on the grace
+  period. Confirmed live post-fix with a real person genuinely
+  interrupting at different points in a reply
+  (`tests/confirm_real_barge_in.py`): 4/4 real interruptions fired in
+  the "middle"/"late" rounds (early attempts inside the still-active
+  grace period correctly don't fire, by design).
+
+  That fix also surfaced a second, real trade-off rather than a bug:
+  on at least one reply text different from the Monty Hall one above,
+  the echo canceller hadn't fully converged by the time
+  grace_period_ms elapsed, and the leftover echo reached similar
+  sustained VAD confidence to real speech -- 2/3 live self-triggers on
+  that text at 0.93/24. Raising the bar further (tried 0.93/32, then
+  0.97/32, using `tests/sweep_thresholds_fast.py` -- a faster variant
+  of the trace sweep that reuses one long-lived model instance across
+  trials instead of reloading it every time, which also turned out to
+  matter: a combination that read 0/15 in that sweep still
+  live-false-triggered 1/5 when re-confirmed with a freshly-created
+  model per trial, closer to what `tune_barge_in_thresholds.py
+  --confirm` and real conversational turns look like) did eliminate
+  that self-trigger (6/6 clean at 0.97/32) but also suppressed genuine
+  interruption on the same text (0/3 real attempts fired in the same
+  live round) -- past a point, confident echo and confident real
+  speech overlap enough on this text that no (prob_threshold,
+  consecutive_frames) pair separates them cleanly. Deliberately kept at
+  0.93/24 (real barge-in confirmed reliable, small known residual
+  self-trigger risk on some reply audio) rather than trade away real
+  functionality for a threshold that might not fire at all -- see
+  config.yaml's comment for the full reasoning. The real fix for the
+  residual risk is a more robust echo canceller (faster/more reliable
+  convergence, or detecting convergence directly instead of trusting a
+  fixed grace timer for every possible reply), not further threshold
+  tweaking; noted below under known gaps.
