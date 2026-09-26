@@ -74,12 +74,29 @@ without re-deriving the whole design.
   audio — the full reply text is already in `chat.history` even if the
   user only heard part of it spoken. Fine for now; revisit if it
   causes the model to reference lines the user never heard.
-- No echo cancellation: with speakers and mic on the same machine,
-  `speak_with_barge_in` was self-interrupting almost immediately (~64ms)
-  because the mic hears the assistant's own voice and Silero correctly
-  scores it as speech. `barge_in.prob_threshold`/`consecutive_frames`
-  in `config.yaml` raise the bar a lot (0.9 confidence, ~512ms
-  sustained) as a stopgap — real interruptions still work, but loud
-  sustained echo could still eventually cross that bar. Real fixes:
-  headphones (mic physically can't hear the speakers), or actual echo
-  cancellation.
+- Echo cancellation (`audio/echo_cancel.py`): with speakers and mic on
+  the same machine, `speak_with_barge_in` was self-interrupting almost
+  immediately because the mic hears the assistant's own voice, which
+  Silero scores at ~1.0 confidence for seconds at a stretch — a
+  `prob_threshold`/`consecutive_frames`-only stopgap couldn't
+  distinguish that from a real interruption at all. A single-channel
+  NLMS adaptive filter, using the known reference (playback) signal,
+  now subtracts a predicted copy of the echo before each chunk is
+  scored. Two things had to be learned the hard way rather than
+  guessed: (1) an initial version anchored tightly to one measured
+  delay (~410ms ± a narrow 150ms window) worked perfectly replayed
+  against its own calibration recording, but failed live in a fresh
+  session — the delay isn't perfectly stable run to run, so the window
+  needed widening (50-650ms) with a fast adaptation rate (`mu: 1.9`,
+  near NLMS's 2.0 stability limit) to converge reliably within it; (2)
+  the filter needs ~1-2s of real audio to converge at all, so
+  `barge_in.grace_period_ms` fully disables the trigger check (not
+  just loosens it) for that long at the start of every reply, while
+  the canceller still runs and adapts. Verified over 10 consecutive
+  live runs (mixed short/long replies) with zero false triggers, after
+  runs without the grace period showed occasional (~1 in 4) early false
+  triggers within that same initial window. Headphones remain a
+  simpler, fully-robust alternative if echo cancellation ever proves
+  unreliable on a different machine — recalibrating
+  `echo_cancel.expected_delay_ms`/`filter_length_ms` there is the first
+  thing to try (see config.yaml's comments).

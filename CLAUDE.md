@@ -36,7 +36,8 @@ LM Studio chat completion -> Piper (TTS) -> speaker -> back to listening
 
 - `config.yaml` — every endpoint, model name, and threshold. Nothing
   pipeline-related should be hardcoded elsewhere.
-- `audio/` — mic capture, VAD/turn-detection, playback, wake-word gate.
+- `audio/` — mic capture, VAD/turn-detection, playback, wake-word gate,
+  echo cancellation.
 - `stt/` — whisper.cpp HTTP client.
 - `tts/` — Piper CLI wrapper (v1 voice; Orpheus is the planned upgrade).
 - `llm/` — OpenAI-compatible client against LM Studio, holds

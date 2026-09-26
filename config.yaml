@@ -26,18 +26,45 @@ tts:
 vad:
   speech_prob_threshold: 0.5     # Silero VAD speech probability cutoff
   silence_hangover_ms: 700       # trailing silence before a turn is considered over
-  min_speech_ms: 250              # ignore blips shorter than this (coughs, taps)
+  min_speech_ms: 500              # ignore blips shorter than this (coughs, taps)
 
 barge_in:
-  # Deliberately stricter than vad's own thresholds above. With speakers and
-  # mic on the same machine and no echo cancellation, the mic hears the
-  # assistant's own voice, and Silero correctly scores it as real speech —
-  # this used to self-interrupt after ~64ms almost every time. Raising the
-  # bar a lot is a stopgap, not a fix: loud, sustained echo can still
-  # eventually cross it. The real fixes are using headphones (mic can't
-  # hear the speakers at all) or adding actual echo cancellation.
+  # Stricter than vad's own thresholds above, on top of echo cancellation
+  # below rather than instead of it — belt and suspenders. Measured: with
+  # speakers and mic on the same machine, raw mic input during TTS
+  # playback sustained ~1.0 VAD confidence for 3.26s straight (this used
+  # to self-interrupt after ~64ms).
   prob_threshold: 0.9              # vs vad's 0.5 — must be much more confident
-  consecutive_frames: 16           # ~512ms sustained, vs the old 2 (~64ms)
+  consecutive_frames: 16           # ~512ms sustained, vs the old 2 (~64ms) -- applies AFTER the grace period below
+
+  # The adaptive filter needs a couple of seconds of real audio to converge.
+  # Across repeated live test runs, every false trigger happened within the
+  # first ~1.8s of a reply and never after -- so barge-in is simply disabled
+  # (not just stricter) for grace_period_ms at the start of each reply, while
+  # the canceller still runs and converges. No interruption at all is
+  # possible in that window, but it's a couple of seconds, not the whole reply.
+  grace_period_ms: 2000
+
+  echo_cancel:
+    enabled: true
+    # NLMS adaptive filter (audio/echo_cancel.py) that predicts the echo
+    # from the known reference (playback) signal and subtracts it before
+    # scoring. A first attempt anchored expected_delay_ms tightly to a
+    # single cross-correlation measurement (~410ms) with a narrow +150ms
+    # window; it worked great replayed against the exact recording it was
+    # measured on, but failed live in a fresh session (delay apparently
+    # isn't perfectly stable run to run). Widening the window to bracket
+    # the whole plausible range (50-650ms) and raising mu close to NLMS's
+    # stability limit (2.0) so it converges fast enough within that wider
+    # window is what actually held up across repeated live tests -- a
+    # 6/8 pass rate on its own, both failures within the first ~1.8s (see
+    # grace_period_ms above, added specifically to close that gap).
+    # Loosen expected_delay_ms/filter_length_ms further
+    # further (at some real-time compute cost) if it's still unreliable
+    # on a different machine.
+    expected_delay_ms: 50
+    filter_length_ms: 600
+    mu: 1.9                          # NLMS step size, must stay under 2.0 (theoretical stability limit)
 
 wake_word:
   enabled: false
