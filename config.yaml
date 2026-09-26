@@ -25,11 +25,21 @@ llm:
   # risking it being rejected or silently truncated by the server.
   context_compaction_threshold: 0.8
 
+  # Per-request timeout to LM Studio. A hung (not just down) server --
+  # e.g. mid-load, or wedged -- looks identical to a slow one without a
+  # ceiling; past this, main.py treats it the same as a connection
+  # failure and enters its reconnect-and-wait loop rather than blocking
+  # the whole voice loop indefinitely.
+  request_timeout_s: 60
+
 stt:
   # A whisper.cpp `server` binary running separately, holding a ggml model
   # resident in memory. See README.md for how to start it.
   whisper_server_url: "http://localhost:8081"
   language: "en"
+  request_timeout_s: 30           # per-request timeout to whisper.cpp
+  max_retries: 2                  # retries for a single dropped/blipped request before treating the server as down
+  retry_backoff_s: 1.0             # base backoff between retries above, doubling each attempt
 
 tts:
   engine: "piper"
@@ -37,6 +47,7 @@ tts:
   piper_model: "voices/en_GB-southern_english_female-low.onnx"
   piper_model_config: "voices/en_GB-southern_english_female-low.onnx.json"
   speaker: null                   # speaker id for multi-speaker voices (e.g. libritts); ignored by single-speaker voices
+  synth_timeout_s: 30              # kills a hung Piper subprocess after this long
 
 vad:
   speech_prob_threshold: 0.5     # Silero VAD speech probability cutoff
@@ -161,6 +172,15 @@ noise_reduction:
   oversubtraction: 1.2             # how aggressively to subtract the estimated noise spectrum; higher = more suppression, more "musical noise" artifact risk
   spectral_floor: 0.1              # minimum gain per frequency bin (0-1); prevents bins being zeroed out entirely
   noise_update_rate: 0.05          # how fast the noise estimate adapts to changing conditions (e.g. speeding up/slowing down)
+
+reconnect:
+  # How main.py responds when whisper.cpp, Piper, or LM Studio is
+  # unreachable mid-session (killed, crashed, not started yet): rather
+  # than crashing the whole loop, it prints a notice and polls the
+  # affected service at this interval until it responds again, then
+  # resumes the turn that was in flight (retranscribing/re-asking/
+  # re-synthesizing as needed) -- see main.py's call_with_reconnect.
+  poll_interval_s: 3
 
 tools:
   browser:

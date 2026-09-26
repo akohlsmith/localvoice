@@ -10,6 +10,7 @@ server (see README.md).
 import os
 import re
 import sys
+import time
 
 import numpy as np
 import yaml
@@ -20,13 +21,42 @@ from audio.echo_cancel import EchoCanceller, resample_linear
 from audio.noise_reduce import NoiseReducer
 from audio.vad import SileroVAD, TurnDetector
 from audio.wake_word import WakeWordGate
-from llm.chat_client import ChatClient
-from stt.whisper_client import WhisperClient
-from tts.tts_client import PiperTTS
+from llm.chat_client import ChatClient, LlmUnavailableError
+from stt.whisper_client import WhisperClient, WhisperUnavailableError
+from tts.tts_client import PiperTTS, PiperUnavailableError
 
 CHUNK_SAMPLES = 512  # required window size for Silero VAD at 16kHz
 DEFAULT_CANCEL_PHRASES = ["cancel", "nevermind", "never mind", "forget it"]
 COMPACTION_NOTICE = "One moment, I'm compacting our conversation to keep things running smoothly."
+
+# Any of these means "the external process/server this call depends on
+# is unreachable" -- see wait_for_service/call_with_reconnect below.
+SERVICE_UNAVAILABLE_ERRORS = (WhisperUnavailableError, PiperUnavailableError, LlmUnavailableError)
+
+
+def wait_for_service(name: str, is_available, poll_interval_s: float = 3.0):
+    """Blocks, polling is_available() every poll_interval_s, until it
+    returns True. Only prints on state change (not every poll) so a long
+    outage doesn't spam the console."""
+    print(f"({name} is unreachable -- waiting for it to come back...)")
+    while not is_available():
+        time.sleep(poll_interval_s)
+    print(f"({name} is back.)")
+
+
+def call_with_reconnect(fn, service_name: str, is_available, poll_interval_s: float = 3.0):
+    """Calls fn(); if it raises one of SERVICE_UNAVAILABLE_ERRORS, waits
+    for that service to come back (via is_available) and retries fn()
+    with the same arguments, indefinitely. This is what makes whisper.cpp
+    or Piper being killed and restarted mid-session a "wait a moment"
+    experience instead of a crash -- the turn resumes from wherever it
+    was once the server responds again, rather than being dropped."""
+    while True:
+        try:
+            return fn()
+        except SERVICE_UNAVAILABLE_ERRORS as exc:
+            print(f"({service_name} error: {exc})")
+            wait_for_service(service_name, is_available, poll_interval_s)
 
 
 def load_config(path="config.yaml"):
@@ -226,10 +256,15 @@ def main():
             noise_update_rate=noise_cfg.get("noise_update_rate", 0.05),
         )
 
+    reconnect_poll_interval_s = cfg.get("reconnect", {}).get("poll_interval_s", 3.0)
+
     stt = WhisperClient(
         server_url=cfg["stt"]["whisper_server_url"],
         sample_rate=sample_rate,
         language=cfg["stt"]["language"],
+        request_timeout_s=cfg["stt"].get("request_timeout_s", 30.0),
+        max_retries=cfg["stt"].get("max_retries", 2),
+        retry_backoff_s=cfg["stt"].get("retry_backoff_s", 1.0),
     )
 
     wake_cfg = cfg.get("wake_word", {})
@@ -257,6 +292,7 @@ def main():
         model_path=cfg["tts"]["piper_model"],
         config_path=cfg["tts"].get("piper_model_config"),
         speaker=cfg["tts"].get("speaker"),
+        synth_timeout_s=cfg["tts"].get("synth_timeout_s", 30.0),
     )
 
     browser = None
@@ -321,6 +357,7 @@ def main():
         tools=tool_schemas,
         tool_dispatch=tool_dispatch,
         compaction_threshold=cfg["llm"].get("context_compaction_threshold", 0.8),
+        request_timeout_s=cfg["llm"].get("request_timeout_s", 60.0),
     )
     if chat.context_limit is None:
         print("(context length not available from this server -- automatic compaction disabled)")
@@ -336,7 +373,12 @@ def main():
                 candidate = wake_gate.process_chunk(chunk)
                 if candidate is None:
                     continue
-                heard = stt.transcribe(candidate, prompt=wake_prompt)
+                heard = call_with_reconnect(
+                    lambda: stt.transcribe(candidate, prompt=wake_prompt),
+                    "whisper.cpp",
+                    stt.is_available,
+                    reconnect_poll_interval_s,
+                )
                 # Must be the FIRST word, not just present anywhere in the
                 # transcript. WakeWordGate only guarantees silence preceded
                 # the utterance as a whole -- if the whole utterance is a
@@ -389,7 +431,12 @@ def main():
                 if utterance is None:
                     continue
 
-                text = stt.transcribe(utterance)
+                text = call_with_reconnect(
+                    lambda: stt.transcribe(utterance),
+                    "whisper.cpp",
+                    stt.is_available,
+                    reconnect_poll_interval_s,
+                )
                 if not text:
                     continue
             print(f"You said: {text}")
@@ -401,10 +448,14 @@ def main():
                     print(f'Waiting for "{wake_phrase}"...')
                 continue
 
-            reply = chat.ask(text)
+            reply = call_with_reconnect(
+                lambda: chat.ask(text), "LM Studio", chat.is_available, reconnect_poll_interval_s
+            )
             print(f"Assistant: {reply}")
 
-            wav_bytes = tts.synthesize(reply)
+            wav_bytes = call_with_reconnect(
+                lambda: tts.synthesize(reply), "Piper", tts.is_available, reconnect_poll_interval_s
+            )
             if speak_with_barge_in(
                 wav_bytes,
                 mic,
@@ -419,7 +470,12 @@ def main():
 
             if chat.needs_compaction():
                 print(f"(context at {chat.last_total_tokens}/{chat.context_limit} tokens -- compacting)")
-                notice_wav = tts.synthesize(COMPACTION_NOTICE)
+                notice_wav = call_with_reconnect(
+                    lambda: tts.synthesize(COMPACTION_NOTICE),
+                    "Piper",
+                    tts.is_available,
+                    reconnect_poll_interval_s,
+                )
                 speak_with_barge_in(
                     notice_wav,
                     mic,
@@ -430,7 +486,7 @@ def main():
                     grace_period_chunks,
                     noise_reducer,
                 )
-                chat.compact()
+                call_with_reconnect(chat.compact, "LM Studio", chat.is_available, reconnect_poll_interval_s)
                 print("(context compacted)")
 
             if wake_enabled:

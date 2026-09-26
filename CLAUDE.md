@@ -89,4 +89,6 @@ use) are also done. Not yet done: sentence-level streaming latency
 tuning, the Orpheus TTS upgrade, and shell/exec tool access
 (deliberately deferred — no code for it exists). Read PLAN.md before
 starting new work — it also lists known gaps (no conversation
-persistence, no reconnect handling for whisper.cpp/Piper being down).
+persistence across restarts; whisper.cpp/Piper/LM Studio going down
+mid-session now reconnects instead of crashing, not yet verified
+against a real process going down).

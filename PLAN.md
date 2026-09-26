@@ -231,6 +231,32 @@ without re-deriving the whole design.
 
 ## Known gaps / things to watch
 
+- [x] **Reconnection for whisper.cpp/Piper/LM Studio going down** --
+      previously any of the three external processes being unreachable
+      (killed, crashed, or not started yet) raised an uncaught exception
+      straight out of `mic.chunks()`'s loop and crashed the whole voice
+      assistant. Fixed with a matching pair in each client
+      (`stt/whisper_client.py`'s `WhisperUnavailableError`,
+      `tts/tts_client.py`'s `PiperUnavailableError`,
+      `llm/chat_client.py`'s `LlmUnavailableError`, each with an
+      `is_available()` health check) and `main.py`'s
+      `call_with_reconnect()`, which wraps every call into one of the
+      three (transcribe, ask, synthesize, compact) so that on failure it
+      prints a notice, polls `is_available()` at `reconnect.
+      poll_interval_s` until the service responds again, then retries
+      the same call rather than dropping the turn or crashing.
+      `WhisperClient.transcribe()` also retries a single dropped/blipped
+      request internally (`stt.max_retries`/`retry_backoff_s`) before
+      treating the server as actually down, so a one-off network hiccup
+      doesn't trigger the full reconnect flow. `ChatClient.ask()` rolls
+      the conversation history back to exactly its pre-call state on
+      failure (it appends the user turn before calling the API) --
+      without this, a retried `ask()` after reconnecting would leave two
+      consecutive user turns in history with no assistant reply between
+      them, which several local chat templates (including Gemma's)
+      require to strictly alternate. Not yet verified against a real
+      process actually going down and coming back -- no automated
+      coverage for this yet.
 - Echo cancellation convergence is still a fixed timer
   (`barge_in.grace_period_ms`), not a measured/detected convergence
   state. For at least one reply text, the echo canceller hasn't fully

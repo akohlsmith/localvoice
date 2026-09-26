@@ -91,6 +91,8 @@ Speak naturally — a short pause is what tells it you're done talking
 Phases 1–9 are implemented: barge-in, wake word (off by default), and
 tool use (web search/fetch via an isolated Brave profile — web_search
 can use either DuckDuckGo or Firecrawl's search API; web_fetch is
-always the local browser). Not yet done: sentence-level streaming to
-cut perceived latency, the Orpheus TTS upgrade, and shell/exec tool
-access. See `PLAN.md`.
+always the local browser). whisper.cpp/Piper/LM Studio going down
+mid-session now triggers a reconnect-and-wait loop instead of crashing
+(see `reconnect` in `config.yaml`). Not yet done: sentence-level
+streaming to cut perceived latency, the Orpheus TTS upgrade, and
+shell/exec tool access. See `PLAN.md`.
