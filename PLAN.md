@@ -181,3 +181,17 @@ without re-deriving the whole design.
   the preceding turn took to think. Re-verified across 6 runs with
   backlogs from 1 to 156 chunks (0.05s-5s of accumulated delay) — all
   passed, including the exact backlog size that reproduced the bug.
+
+  Still not zero, though: a real "explain the Monty Hall paradox" reply
+  self-interrupted just after the first sentence. Measured over 15
+  trials replaying that exact reply (same text, same punctuation and
+  paragraph breaks) end to end: 1/15 (~6.7%) false-triggered, at 3.76s
+  in -- just past grace_period_ms, not during it. This is a real
+  residual failure rate with the current settings, not something to
+  claim is fully solved. Options if it keeps happening, roughly in
+  order of effort: raise grace_period_ms (pushes the risk window later,
+  doesn't shrink it for a reply that runs long); raise
+  barge_in.consecutive_frames/prob_threshold further (reduces the rate
+  at the cost of slightly slower real-interruption response);
+  headphones (eliminates it entirely, since the mic then can't hear the
+  speakers at all).
