@@ -7,6 +7,7 @@ Run `python main.py` after starting LM Studio's server and whisper.cpp's
 server (see README.md).
 """
 
+import re
 import sys
 
 import numpy as np
@@ -204,10 +205,22 @@ def main():
                 if candidate is None:
                     continue
                 heard = stt.transcribe(candidate, prompt=wake_prompt)
-                lowered = heard.lower()
-                match_index = lowered.find(wake_phrase.lower())
-                if match_index == -1:
+                # Must be the FIRST word, not just present anywhere in the
+                # transcript. WakeWordGate only guarantees silence preceded
+                # the utterance as a whole -- if the whole utterance is a
+                # longer sentence with no pause inside it (e.g. "I think
+                # gemma is a nice name"), a plain substring match would
+                # fire on "gemma" mid-sentence, which never had any silence
+                # actually in front of it. Requiring the match at the
+                # start (mod leading whitespace/punctuation) plus a word
+                # boundary is what actually ties the check to the phrase
+                # itself, not just to the utterance it happened to be part of.
+                match = re.match(
+                    r"^[\s,.!?—-]*(" + re.escape(wake_phrase) + r")\b", heard, re.IGNORECASE
+                )
+                if match is None:
                     continue
+                match_index = match.start(1)
                 print("Wake word heard — listening...")
                 listening_for_wake_word = False
 

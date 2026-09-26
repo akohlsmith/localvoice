@@ -49,6 +49,20 @@ without re-deriving the whole design.
         phrase spoken too soon after other speech is discarded before
         even reaching STT; an unrelated sentence reaches STT but
         correctly fails the phrase match.
+        Bug found after enabling it live: `WakeWordGate` only guarantees
+        silence preceded the *utterance as a whole* — if a longer
+        sentence with the phrase buried in it has no pause inside it
+        (e.g. "I was thinking Gemma might be a nice name"), the whole
+        sentence is one utterance that correctly passes the silence
+        gate, and a plain substring match then fired on "Gemma" mid-
+        sentence, which itself was never preceded by any silence. Fixed
+        by requiring the phrase at the *start* of the transcript (mod
+        leading whitespace/punctuation) with a word boundary after it,
+        not just present anywhere — ties the check to the phrase itself
+        rather than to whatever utterance it happened to be part of.
+        Re-verified against real audio: a wake phrase buried mid-sentence
+        no longer matches; an isolated phrase and phrase-plus-query both
+        still do.
 - [x] **9. Tool use** — `llm/chat_client.py`'s `ask()` now runs a real
       tool-call loop (OpenAI-style `tools`/`tool_calls`, capped at
       `MAX_TOOL_ITERATIONS`), confirmed working against the loaded

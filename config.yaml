@@ -67,7 +67,7 @@ barge_in:
     mu: 1.9                          # NLMS step size, must stay under 2.0 (theoretical stability limit)
 
 wake_word:
-  enabled: false
+  enabled: true
   phrase: "gemma"                 # soft-g "Gemma" — matches the LLM model's name
   silence_before_ms: 1500          # required quiet stretch before a wake-word attempt is even considered
   silence_hangover_ms: 300         # trailing silence to end the wake-word utterance — kept short so
