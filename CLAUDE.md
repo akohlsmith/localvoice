@@ -44,6 +44,8 @@ LM Studio chat completion -> Piper (TTS) -> speaker -> back to listening
 - `tools/` — tool schemas + dispatch (`registry.py`) and implementations
   (`browser.py`: `web_search`/`web_fetch` via an isolated Brave
   profile). Off by default in `config.yaml`.
+- `scripts/` — one-off admin scripts, not part of the runtime loop
+  (e.g. `prime_browser_profile.py`).
 - `main.py` — the orchestration loop; deliberately the smallest file,
   since everything else is a call into an external tool or server.
 

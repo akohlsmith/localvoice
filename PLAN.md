@@ -42,8 +42,10 @@ without re-deriving the whole design.
       Gemma model. `tools/registry.py` holds the schema + dispatch;
       `tools/browser.py` implements `web_search`/`web_fetch` by driving
       a real, isolated Brave profile (`tools.browser.profile_dir` in
-      `config.yaml`, separate from the everyday Brave profile/cookies).
-      Off by default (`tools.browser.enabled: false`) — flip it on to
+      `config.yaml`, separate from the everyday Brave profile/cookies —
+      `scripts/prime_browser_profile.py` selectively copies specific
+      site cookies in if a tool call needs a logged-in session). Off by
+      default (`tools.browser.enabled: false`) — flip it on to
       use it. Note: true headless Chromium gets served a CAPTCHA by
       search.brave.com specifically; `tools/browser.py` works around
       this by running headed-but-off-screen instead (see its
