@@ -33,10 +33,16 @@ class WhisperClient:
         self.sample_rate = sample_rate
         self.language = language
 
-    def transcribe(self, audio: np.ndarray) -> str:
+    def transcribe(self, audio: np.ndarray, prompt: str = None) -> str:
+        """prompt biases decoding toward expected words (e.g. a wake phrase) —
+        whisper.cpp's /inference honors it per-request. Matters a lot for
+        short, out-of-context utterances: without a hint, a clean "Gemma."
+        got misheard as "D'Emma"; with one, it came back correct."""
         wav_bytes = _to_wav_bytes(audio, self.sample_rate)
         files = {"file": ("utterance.wav", wav_bytes, "audio/wav")}
         data = {"response_format": "json", "language": self.language}
+        if prompt:
+            data["prompt"] = prompt
         resp = requests.post(f"{self.server_url}/inference", files=files, data=data, timeout=30)
         resp.raise_for_status()
         return resp.json().get("text", "").strip()

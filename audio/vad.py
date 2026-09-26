@@ -61,6 +61,10 @@ class TurnDetector:
         self._silence_run = 0
         self._speech_frames = 0
 
+    @property
+    def in_speech(self) -> bool:
+        return self._in_speech
+
     def process_chunk(self, chunk: np.ndarray):
         """Feed one chunk. Returns a concatenated np.ndarray utterance when a
         turn just ended, otherwise None."""

@@ -14,6 +14,7 @@ import yaml
 from audio import playback
 from audio.capture import MicStream
 from audio.vad import SileroVAD, TurnDetector
+from audio.wake_word import WakeWordGate
 from llm.chat_client import ChatClient
 from stt.whisper_client import WhisperClient
 from tts.tts_client import PiperTTS
@@ -78,6 +79,23 @@ def main():
         language=cfg["stt"]["language"],
     )
 
+    wake_cfg = cfg.get("wake_word", {})
+    wake_enabled = wake_cfg.get("enabled", False)
+    wake_phrase = wake_cfg.get("phrase", "")
+    wake_prompt = f"The wake word is {wake_phrase.capitalize()}." if wake_phrase else None
+    wake_gate = None
+    if wake_enabled:
+        wake_gate = WakeWordGate(
+            vad,
+            sample_rate=sample_rate,
+            chunk_samples=CHUNK_SAMPLES,
+            prob_threshold=cfg["vad"]["speech_prob_threshold"],
+            silence_hangover_ms=wake_cfg.get("silence_hangover_ms", 500),
+            min_speech_ms=wake_cfg.get("min_speech_ms", 150),
+            silence_before_ms=wake_cfg.get("silence_before_ms", 1500),
+        )
+    listening_for_wake_word = wake_enabled
+
     tts = PiperTTS(
         binary=cfg["tts"]["piper_binary"],
         model_path=cfg["tts"]["piper_model"],
@@ -110,10 +128,21 @@ def main():
         tool_dispatch=tool_dispatch,
     )
 
-    print("Listening... (Ctrl+C to quit)")
+    print("Listening... (Ctrl+C to quit)" if not listening_for_wake_word else f'Waiting for "{wake_phrase}"...')
     mic.start()
     try:
         for chunk in mic.chunks():
+            if listening_for_wake_word:
+                candidate = wake_gate.process_chunk(chunk)
+                if candidate is None:
+                    continue
+                heard = stt.transcribe(candidate, prompt=wake_prompt)
+                if wake_phrase.lower() not in heard.lower():
+                    continue
+                print(f"Wake word heard — listening...")
+                listening_for_wake_word = False
+                continue
+
             utterance = turn_detector.process_chunk(chunk)
             if utterance is None:
                 continue
@@ -129,6 +158,10 @@ def main():
             wav_bytes = tts.synthesize(reply)
             if speak_with_barge_in(wav_bytes, mic, turn_detector):
                 print("(interrupted)")
+
+            if wake_enabled:
+                listening_for_wake_word = True
+                print(f'Waiting for "{wake_phrase}"...')
     except KeyboardInterrupt:
         print("\nStopping.")
     finally:

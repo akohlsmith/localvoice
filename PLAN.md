@@ -34,8 +34,21 @@ without re-deriving the whole design.
       for Orpheus-3B (GGUF, loaded as a second model in LM Studio
       alongside the chat model — 64GB holds both comfortably), which
       needs an added SNAC decode step to turn its output tokens into
-      audio. Optionally gate listening behind a keyword (openWakeWord)
-      so an always-on mic doesn't transcribe ambient conversation.
+      audio.
+  - [x] Wake word: `audio/wake_word.py`'s `WakeWordGate` requires a
+        configured stretch of silence (`wake_word.silence_before_ms`)
+        before it will even consider a candidate utterance, then
+        transcribes just that candidate with a decoding hint
+        (`stt.transcribe(..., prompt=...)`) and checks it against
+        `wake_word.phrase` ("gemma" by default) before switching
+        `main.py` into normal command capture. No separate wake-word
+        model/training (openWakeWord) needed — reuses TurnDetector +
+        whisper.cpp. Off by default (`wake_word.enabled: false`).
+        Verified end-to-end against real Silero VAD + real whisper.cpp:
+        correct wake phrase after enough silence triggers; the same
+        phrase spoken too soon after other speech is discarded before
+        even reaching STT; an unrelated sentence reaches STT but
+        correctly fails the phrase match.
 - [x] **9. Tool use** — `llm/chat_client.py`'s `ask()` now runs a real
       tool-call loop (OpenAI-style `tools`/`tool_calls`, capped at
       `MAX_TOOL_ITERATIONS`), confirmed working against the loaded

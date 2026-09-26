@@ -36,7 +36,7 @@ LM Studio chat completion -> Piper (TTS) -> speaker -> back to listening
 
 - `config.yaml` — every endpoint, model name, and threshold. Nothing
   pipeline-related should be hardcoded elsewhere.
-- `audio/` — mic capture, VAD/turn-detection, playback.
+- `audio/` — mic capture, VAD/turn-detection, playback, wake-word gate.
 - `stt/` — whisper.cpp HTTP client.
 - `tts/` — Piper CLI wrapper (v1 voice; Orpheus is the planned upgrade).
 - `llm/` — OpenAI-compatible client against LM Studio, holds
@@ -61,10 +61,10 @@ LM Studio chat completion -> Piper (TTS) -> speaker -> back to listening
 ## Current status — see PLAN.md for the authoritative, checkable list
 
 Phases 1–6 are implemented: a working end-to-end loop with a simple
-voice. Barge-in (phase 7) and tool use (phase 9: web_search/web_fetch
-via a real, isolated browser) are also done. Not yet done:
-sentence-level streaming latency tuning, the Orpheus TTS upgrade, an
-optional wake-word gate, and shell/exec tool access (deliberately
+voice. Barge-in (phase 7), a wake word (phase 8, off by default), and
+tool use (phase 9: web_search/web_fetch via a real, isolated browser)
+are also done. Not yet done: sentence-level streaming latency tuning,
+the Orpheus TTS upgrade, and shell/exec tool access (deliberately
 deferred — no code for it exists). Read PLAN.md before starting new
 work — it also lists known gaps (no conversation persistence, no
 reconnect handling for whisper.cpp/Piper being down).

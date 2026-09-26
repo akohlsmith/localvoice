@@ -78,8 +78,8 @@ Speak naturally — a short pause is what tells it you're done talking
 
 ## Status
 
-Phases 1–7 (barge-in) and 9 (tool use — web search/fetch via an
-isolated Brave profile, off by default) are implemented. Not yet done:
-sentence-level streaming to cut perceived latency, the Orpheus TTS
-upgrade, an optional wake word, and shell/exec tool access. See
-`PLAN.md`.
+Phases 1–7 (barge-in), 8's wake word (off by default), and 9 (tool
+use — web search/fetch via an isolated Brave profile, off by default)
+are implemented. Not yet done: sentence-level streaming to cut
+perceived latency, the Orpheus TTS upgrade, and shell/exec tool access.
+See `PLAN.md`.

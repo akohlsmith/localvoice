@@ -28,6 +28,18 @@ vad:
   silence_hangover_ms: 700       # trailing silence before a turn is considered over
   min_speech_ms: 250              # ignore blips shorter than this (coughs, taps)
 
+wake_word:
+  enabled: false
+  phrase: "gemma"                 # soft-g "Gemma" — matches the LLM model's name
+  silence_before_ms: 1500          # required quiet stretch before a wake-word attempt is even considered
+  silence_hangover_ms: 500         # shorter than vad's — a single word ends faster than a sentence
+  min_speech_ms: 150               # a wake word is much shorter than a normal utterance
+  # Music/background noise is filtered two ways: Silero VAD has to think it's speech at
+  # all, AND (since this only ever looks at short candidates following real silence) it
+  # then has to transcribe to the exact phrase — a stray VAD trigger from a song essentially
+  # never comes back from whisper.cpp as "gemma". If VAD itself is triggering on music
+  # often, raise vad.speech_prob_threshold or vad.min_speech_ms instead.
+
 audio:
   sample_rate: 16000              # required by Silero VAD and whisper.cpp
   channels: 1
