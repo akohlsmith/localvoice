@@ -254,9 +254,15 @@ without re-deriving the whole design.
       without this, a retried `ask()` after reconnecting would leave two
       consecutive user turns in history with no assistant reply between
       them, which several local chat templates (including Gemma's)
-      require to strictly alternate. Not yet verified against a real
-      process actually going down and coming back -- no automated
-      coverage for this yet.
+      require to strictly alternate. Verified with mocked failures
+      (`tests/test_service_reconnect.py`, no real servers needed): retry
+      behavior, the three `*UnavailableError` types, `is_available()`
+      accuracy, `ChatClient.ask()`'s history rollback and clean retry,
+      and `call_with_reconnect()`'s resume-once-available behavior — all
+      passing. Not yet verified against a real whisper.cpp/Piper/LM
+      Studio process actually being killed and restarted mid-conversation
+      live; the mocks stand in for that until it's exercised on real
+      hardware.
 - Echo cancellation convergence is still a fixed timer
   (`barge_in.grace_period_ms`), not a measured/detected convergence
   state. For at least one reply text, the echo canceller hasn't fully
