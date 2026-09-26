@@ -8,9 +8,15 @@ import json
 import re
 
 import requests
-from openai import OpenAI
+from openai import APIConnectionError, APITimeoutError, OpenAI
 
 MAX_TOOL_ITERATIONS = 5  # guards against a runaway tool-call loop
+
+
+class LlmUnavailableError(Exception):
+    """Raised when LM Studio's server can't be reached or times out --
+    main.py treats this as "the model server is down" and triggers its
+    reconnect-and-wait flow, distinct from a normal API/model error."""
 
 
 def _fetch_context_length(base_url: str, model: str) -> int:
@@ -68,10 +74,15 @@ class ChatClient:
         tool_dispatch=None,
         context_limit: int = None,
         compaction_threshold: float = 0.8,
+        request_timeout_s: float = 60.0,
     ):
-        self.client = OpenAI(base_url=base_url, api_key="lm-studio")
+        # max_retries=0: we run our own reconnect-and-wait loop (see
+        # main.py) instead of layering the SDK's own silent retries on
+        # top of it, which would otherwise compound backoff delays.
+        self.client = OpenAI(base_url=base_url, api_key="lm-studio", max_retries=0)
         self.model = model
         self.temperature = temperature
+        self.request_timeout_s = request_timeout_s
         self.tools = tools
         self.tool_dispatch = tool_dispatch
         self.system_prompt = system_prompt
@@ -96,6 +107,26 @@ class ChatClient:
         if self.context_limit is None or self.last_total_tokens is None:
             return False
         return self.last_total_tokens >= self.compaction_threshold * self.context_limit
+
+    def is_available(self, timeout_s: float = 3.0) -> bool:
+        """Cheap reachability check used by main.py while waiting for LM
+        Studio's server to come back."""
+        try:
+            self.client.models.list(timeout=timeout_s)
+            return True
+        except (APIConnectionError, APITimeoutError):
+            return False
+
+    def _create(self, **kwargs):
+        """Wraps chat.completions.create with a per-request timeout and
+        translates connection-level failures into LlmUnavailableError,
+        so callers can tell "server unreachable" apart from a normal
+        API/model error and react accordingly (main.py's reconnect
+        flow)."""
+        try:
+            return self.client.chat.completions.create(timeout=self.request_timeout_s, **kwargs)
+        except (APIConnectionError, APITimeoutError) as exc:
+            raise LlmUnavailableError(f"LM Studio server is unreachable: {exc}") from exc
 
     def compact(self):
         """Replaces the turn-by-turn history with a single condensed
@@ -126,7 +157,7 @@ class ChatClient:
         if not transcript:
             return
 
-        summary_response = self.client.chat.completions.create(
+        summary_response = self._create(
             model=self.model,
             messages=[
                 {
@@ -157,42 +188,54 @@ class ChatClient:
 
     def ask(self, user_text: str) -> str:
         """Blocking, non-streaming call. Returns the final reply and updates
-        history, running any tool calls the model makes along the way."""
+        history, running any tool calls the model makes along the way.
+
+        If LM Studio is unreachable partway through, rolls history back
+        to exactly how it was before this call (rather than leaving a
+        dangling user message with no reply) and raises
+        LlmUnavailableError -- main.py waits for the server to come back
+        and then calls ask() again with the same text, which needs
+        history to still be in a clean, alternating state."""
+        history_len_before = len(self.history)
         self.history.append({"role": "user", "content": user_text})
 
-        for _ in range(MAX_TOOL_ITERATIONS):
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=self.history,
-                temperature=self.temperature,
-                tools=self.tools if self.tools else None,
-            )
-            message = response.choices[0].message
-            self._record_usage(response)
-
-            if not message.tool_calls:
-                reply = message.content
-                if _looks_like_leaked_tool_call(reply):
-                    print(f"[ChatClient] discarding hallucinated tool-call text: {reply!r}")
-                    reply = FALLBACK_REPLY
-                self.history.append({"role": "assistant", "content": reply})
-                return reply
-
-            self.history.append(
-                {
-                    "role": "assistant",
-                    "content": message.content or "",
-                    "tool_calls": [tc.model_dump() for tc in message.tool_calls],
-                }
-            )
-            for tc in message.tool_calls:
-                arguments = json.loads(tc.function.arguments)
-                result = self.tool_dispatch(tc.function.name, arguments)
-                self.history.append(
-                    {"role": "tool", "tool_call_id": tc.id, "content": result}
+        try:
+            for _ in range(MAX_TOOL_ITERATIONS):
+                response = self._create(
+                    model=self.model,
+                    messages=self.history,
+                    temperature=self.temperature,
+                    tools=self.tools if self.tools else None,
                 )
+                message = response.choices[0].message
+                self._record_usage(response)
 
-        return "Sorry, that took too many steps to answer — could you try rephrasing it?"
+                if not message.tool_calls:
+                    reply = message.content
+                    if _looks_like_leaked_tool_call(reply):
+                        print(f"[ChatClient] discarding hallucinated tool-call text: {reply!r}")
+                        reply = FALLBACK_REPLY
+                    self.history.append({"role": "assistant", "content": reply})
+                    return reply
+
+                self.history.append(
+                    {
+                        "role": "assistant",
+                        "content": message.content or "",
+                        "tool_calls": [tc.model_dump() for tc in message.tool_calls],
+                    }
+                )
+                for tc in message.tool_calls:
+                    arguments = json.loads(tc.function.arguments)
+                    result = self.tool_dispatch(tc.function.name, arguments)
+                    self.history.append(
+                        {"role": "tool", "tool_call_id": tc.id, "content": result}
+                    )
+
+            return "Sorry, that took too many steps to answer — could you try rephrasing it?"
+        except LlmUnavailableError:
+            del self.history[history_len_before:]
+            raise
 
     def ask_streaming(self, user_text: str):
         """Generator yielding text deltas as they arrive.
@@ -200,18 +243,30 @@ class ChatClient:
         Not wired into main.py yet (that's the phase-7 latency work —
         sentence-chunking this output into TTS as it arrives rather than
         waiting for the full reply) but the client-side piece is ready.
+
+        Same rollback behavior as ask(): a connection failure (whether
+        on the initial request or mid-stream) leaves history exactly as
+        it was before this call and raises LlmUnavailableError.
         """
+        history_len_before = len(self.history)
         self.history.append({"role": "user", "content": user_text})
-        stream = self.client.chat.completions.create(
-            model=self.model,
-            messages=self.history,
-            temperature=self.temperature,
-            stream=True,
-        )
-        collected = []
-        for chunk in stream:
-            delta = chunk.choices[0].delta.content
-            if delta:
-                collected.append(delta)
-                yield delta
-        self.history.append({"role": "assistant", "content": "".join(collected)})
+        try:
+            stream = self._create(
+                model=self.model,
+                messages=self.history,
+                temperature=self.temperature,
+                stream=True,
+            )
+            collected = []
+            try:
+                for chunk in stream:
+                    delta = chunk.choices[0].delta.content
+                    if delta:
+                        collected.append(delta)
+                        yield delta
+            except (APIConnectionError, APITimeoutError) as exc:
+                raise LlmUnavailableError(f"LM Studio server is unreachable: {exc}") from exc
+            self.history.append({"role": "assistant", "content": "".join(collected)})
+        except LlmUnavailableError:
+            del self.history[history_len_before:]
+            raise
