@@ -28,6 +28,17 @@ vad:
   silence_hangover_ms: 700       # trailing silence before a turn is considered over
   min_speech_ms: 250              # ignore blips shorter than this (coughs, taps)
 
+barge_in:
+  # Deliberately stricter than vad's own thresholds above. With speakers and
+  # mic on the same machine and no echo cancellation, the mic hears the
+  # assistant's own voice, and Silero correctly scores it as real speech —
+  # this used to self-interrupt after ~64ms almost every time. Raising the
+  # bar a lot is a stopgap, not a fix: loud, sustained echo can still
+  # eventually cross it. The real fixes are using headphones (mic can't
+  # hear the speakers at all) or adding actual echo cancellation.
+  prob_threshold: 0.9              # vs vad's 0.5 — must be much more confident
+  consecutive_frames: 16           # ~512ms sustained, vs the old 2 (~64ms)
+
 wake_word:
   enabled: false
   phrase: "gemma"                 # soft-g "Gemma" — matches the LLM model's name

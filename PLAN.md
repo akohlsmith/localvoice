@@ -74,3 +74,12 @@ without re-deriving the whole design.
   audio — the full reply text is already in `chat.history` even if the
   user only heard part of it spoken. Fine for now; revisit if it
   causes the model to reference lines the user never heard.
+- No echo cancellation: with speakers and mic on the same machine,
+  `speak_with_barge_in` was self-interrupting almost immediately (~64ms)
+  because the mic hears the assistant's own voice and Silero correctly
+  scores it as speech. `barge_in.prob_threshold`/`consecutive_frames`
+  in `config.yaml` raise the bar a lot (0.9 confidence, ~512ms
+  sustained) as a stopgap — real interruptions still work, but loud
+  sustained echo could still eventually cross that bar. Real fixes:
+  headphones (mic physically can't hear the speakers), or actual echo
+  cancellation.

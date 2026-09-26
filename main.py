@@ -20,7 +20,6 @@ from stt.whisper_client import WhisperClient
 from tts.tts_client import PiperTTS
 
 CHUNK_SAMPLES = 512  # required window size for Silero VAD at 16kHz
-BARGE_IN_CONSECUTIVE_FRAMES = 2  # ~64ms of speech before treating it as a real interruption, not a blip
 
 
 def load_config(path="config.yaml"):
@@ -28,8 +27,16 @@ def load_config(path="config.yaml"):
         return yaml.safe_load(f)
 
 
-def speak_with_barge_in(wav_bytes, mic, turn_detector) -> bool:
-    """Plays a reply; stops immediately if the mic picks up the user talking.
+def speak_with_barge_in(wav_bytes, mic, turn_detector, prob_threshold, consecutive_frames) -> bool:
+    """Plays a reply; stops if the mic picks up the user talking over it.
+
+    prob_threshold/consecutive_frames are deliberately separate from (and
+    stricter than) turn_detector's own conversational VAD settings: with
+    speakers and mic on the same machine and no echo cancellation, the mic
+    picks up the assistant's own voice, which Silero correctly scores as
+    real speech. Requiring a higher-confidence, longer-sustained signal
+    here is a stopgap against that self-triggering, not a full fix — loud,
+    sustained echo can still eventually cross even a high bar.
 
     Returns True if playback was cut short. The chunk that triggered the cut
     is fed into turn_detector so capture of the new utterance starts right
@@ -41,9 +48,9 @@ def speak_with_barge_in(wav_bytes, mic, turn_detector) -> bool:
         if not playback.is_playing():
             return False
         prob = turn_detector.vad.speech_prob(chunk)
-        if prob >= turn_detector.prob_threshold:
+        if prob >= prob_threshold:
             consecutive_speech += 1
-            if consecutive_speech >= BARGE_IN_CONSECUTIVE_FRAMES:
+            if consecutive_speech >= consecutive_frames:
                 playback.stop()
                 turn_detector.process_chunk(chunk)
                 return True
@@ -72,6 +79,10 @@ def main():
         silence_hangover_ms=cfg["vad"]["silence_hangover_ms"],
         min_speech_ms=cfg["vad"]["min_speech_ms"],
     )
+
+    barge_in_cfg = cfg.get("barge_in", {})
+    barge_in_prob_threshold = barge_in_cfg.get("prob_threshold", 0.9)
+    barge_in_consecutive_frames = barge_in_cfg.get("consecutive_frames", 16)
 
     stt = WhisperClient(
         server_url=cfg["stt"]["whisper_server_url"],
@@ -168,7 +179,9 @@ def main():
             print(f"Assistant: {reply}")
 
             wav_bytes = tts.synthesize(reply)
-            if speak_with_barge_in(wav_bytes, mic, turn_detector):
+            if speak_with_barge_in(
+                wav_bytes, mic, turn_detector, barge_in_prob_threshold, barge_in_consecutive_frames
+            ):
                 print("(interrupted)")
 
             if wake_enabled:
