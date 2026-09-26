@@ -12,10 +12,17 @@ import tempfile
 
 
 class PiperTTS:
-    def __init__(self, binary: str = "piper", model_path: str = None, config_path: str = None):
+    def __init__(
+        self,
+        binary: str = "piper",
+        model_path: str = None,
+        config_path: str = None,
+        speaker: int = None,
+    ):
         self.binary = binary
         self.model_path = model_path
         self.config_path = config_path
+        self.speaker = speaker
 
     def synthesize(self, text: str) -> bytes:
         """Returns WAV bytes for the given text."""
@@ -26,6 +33,8 @@ class PiperTTS:
             cmd = [self.binary, "--model", self.model_path, "--output_file", out_path]
             if self.config_path:
                 cmd += ["--config", self.config_path]
+            if self.speaker is not None:
+                cmd += ["--speaker", str(self.speaker)]
 
             subprocess.run(cmd, input=text.encode("utf-8"), capture_output=True, check=True)
 

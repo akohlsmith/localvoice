@@ -18,9 +18,10 @@ stt:
 
 tts:
   engine: "piper"
-  piper_binary: "piper"          # override with a full path if not on PATH
-  piper_model: "en_US-lessac-medium.onnx"
-  piper_model_config: "en_US-lessac-medium.onnx.json"
+  piper_binary: "piper"          # resolves to venv/bin/piper once the venv is activated
+  piper_model: "voices/en_GB-southern_english_female-low.onnx"
+  piper_model_config: "voices/en_GB-southern_english_female-low.onnx.json"
+  speaker: null                   # speaker id for multi-speaker voices (e.g. libritts); ignored by single-speaker voices
 
 vad:
   speech_prob_threshold: 0.5     # Silero VAD speech probability cutoff

@@ -57,6 +57,7 @@ def main():
         binary=cfg["tts"]["piper_binary"],
         model_path=cfg["tts"]["piper_model"],
         config_path=cfg["tts"].get("piper_model_config"),
+        speaker=cfg["tts"].get("speaker"),
     )
 
     chat = ChatClient(
