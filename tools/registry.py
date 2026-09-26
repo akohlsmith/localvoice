@@ -7,7 +7,7 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "web_search",
             "description": (
-                "Search the web via Brave Search and return the visible text of "
+                "Search the web via DuckDuckGo and return the visible text of "
                 "the results page. Use this when you need current information "
                 "you don't already know."
             ),

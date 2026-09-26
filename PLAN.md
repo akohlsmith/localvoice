@@ -125,6 +125,27 @@ without re-deriving the whole design.
       mismatch), it's discarded in favor of a short fallback reply
       instead of being spoken verbatim, same rationale as
       `tts/tts_client.py`'s markdown stripping.
+
+      `web_search` moved off search.brave.com shortly after: with the
+      tool enabled for real use, Brave Search started serving its own
+      "verifying you're not a bot" challenge to this automated flow —
+      confirmed live, and confirmed it's not just the old
+      headless-vs-off-screen CAPTCHA above (a fresh, never-used profile
+      still got challenged, and so did a version with
+      `--disable-blink-features=AutomationControlled` hiding
+      `navigator.webdriver`, meaning Brave checks more than that one
+      signal). That's Brave declining to allow this kind of automated
+      access to their results page — their sanctioned path is the
+      official Search API (api.search.brave.com), not deeper
+      fingerprint spoofing to defeat the check, which is where this
+      stopped rather than continuing to engineer around it.
+      `web_search` now queries DuckDuckGo's server-rendered
+      `html.duckduckgo.com/html/` endpoint instead (extracting just its
+      `#links` results container, to avoid burning `max_chars` on a
+      region/date filter menu) — confirmed clean, no challenge, still
+      driving the same real Brave browser app via the same isolated
+      profile. `web_fetch` was never affected (it loads whatever URL
+      it's given, unrelated to either search provider).
 - [x] **10. Noise reduction** — for highway-speed vehicle use.
       `audio/noise_reduce.py`'s `NoiseReducer` runs two stages on every
       mic chunk (applied in the main loop before `turn_detector`/
