@@ -74,11 +74,16 @@ def speak_with_barge_in(
     is fed into turn_detector so capture of the new utterance starts right
     away, without waiting for the next full loop iteration.
     """
-    ref_audio = None
-    ref_pos = 0
+    # Decoded and resampled to mic.sample_rate regardless of whether echo
+    # cancellation is enabled: playback now goes out through mic's own
+    # duplex stream (see audio/capture.py), which only has one samplerate
+    # for both directions, rather than through a second, independently
+    # clocked output stream -- that's what used to cause intermittent
+    # crackling in the TTS output during barge-in monitoring, confirmed via
+    # tests/measure_output_underruns.py and tests/compare_samplerate_crackle.py.
+    raw_ref, ref_sr = playback.decode_wav_bytes(wav_bytes)
+    ref_audio = resample_linear(raw_ref, ref_sr, mic.sample_rate)
     if echo_canceller is not None:
-        raw_ref, ref_sr = playback.decode_wav_bytes(wav_bytes)
-        ref_audio = resample_linear(raw_ref, ref_sr, echo_canceller.sample_rate)
         echo_canceller.reset()
 
     # Between the last chunk of the user's utterance and here, STT + the LLM
@@ -93,11 +98,12 @@ def speak_with_barge_in(
     # a 3.5s gap before this point queued 109 backlogged chunks and caused
     # an early false trigger at 1.9s elapsed, well inside the grace period.
     mic.drain()
-    playback.play_wav_bytes_async(wav_bytes)
+    mic.play(ref_audio)
     consecutive_speech = 0
     chunk_index = 0
+    ref_pos = 0
     for chunk in mic.chunks():
-        if not playback.is_playing():
+        if not mic.is_playing():
             return False
 
         if echo_canceller is not None:
@@ -141,7 +147,7 @@ def speak_with_barge_in(
         if prob >= prob_threshold:
             consecutive_speech += 1
             if consecutive_speech >= consecutive_frames:
-                playback.stop()
+                mic.stop_playback()
                 turn_detector.process_chunk(scored_chunk)
                 return True
         else:
@@ -158,6 +164,7 @@ def main():
         chunk_samples=CHUNK_SAMPLES,
         channels=cfg["audio"]["channels"],
         device=cfg["audio"]["input_device"],
+        output_device=cfg["audio"]["output_device"],
     )
 
     vad = SileroVAD(sample_rate=sample_rate)

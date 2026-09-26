@@ -265,3 +265,38 @@ without re-deriving the whole design.
   convergence, or detecting convergence directly instead of trusting a
   fixed grace timer for every possible reply), not further threshold
   tweaking; noted below under known gaps.
+
+  Separately, intermittent crackling was reported in TTS output.
+  Measured rather than guessed: `tests/measure_output_underruns.py`
+  ran the real barge-in monitoring loop (echo cancellation + VAD)
+  concurrently with playback and found 0 PortAudio-reported output
+  underflows and per-chunk processing comfortably within its 32ms
+  budget (p50 ~7ms) even over a 2.75-minute reply -- ruling out a
+  Python/GIL performance problem. `tests/compare_samplerate_crackle.py`
+  then ruled out a plain samplerate mismatch (Piper's 16kHz vs. the
+  output device's native 48kHz): identical either way. Isolating
+  further by ear: plain playback alone (no concurrent mic capture) was
+  clean; a concurrent but *idle* mic stream (draining chunks, no
+  processing) was also clean; only concurrent real processing (echo
+  cancellation + VAD, i.e. actual barge-in monitoring) reproduced the
+  crackle -- even though that processing measured well within budget
+  and neither stream ever reported an underrun. Root cause: mic capture
+  and TTS playback were two independently opened, independently
+  clocked PortAudio streams (`audio.capture.MicStream`'s InputStream
+  and `audio.playback`'s separate `sd.play()` output stream); on this
+  machine the built-in mic and speakers are exposed as separate
+  CoreAudio devices even though physically one machine, so a brief
+  scheduling hiccup in one stream isn't synchronized with the other,
+  which can glitch the DAC without either stream's own `status` flag
+  ever being set. Fixed by merging capture and playback into one
+  full-duplex `sd.Stream` (`MicStream.play()`/`is_playing()`/
+  `stop_playback()` in `audio/capture.py`, wired into
+  `main.speak_with_barge_in`) so input and output are produced in the
+  same callback, on the same clock, by construction -- not just given
+  a bigger buffer or less work to dodge the same race. Re-confirmed
+  clean on the same 2.75-minute reply through the new path, and
+  re-confirmed barge-in itself still fires correctly with a precisely
+  timed real interruption. `audio.playback`'s own `play_wav_bytes_async`/
+  `is_playing`/`stop` remain for standalone playback with no
+  concurrent mic capture (a one-off script, etc.) -- only the
+  concurrent-capture-and-playback path needed to change.

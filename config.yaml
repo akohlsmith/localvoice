@@ -134,7 +134,7 @@ audio:
   sample_rate: 16000              # required by Silero VAD and whisper.cpp
   channels: 1
   input_device: null               # sounddevice device index; null = system default
-  output_device: null
+  output_device: null              # same, for the output side of the same duplex stream (audio/capture.py)
 
 noise_reduction:
   # For highway-speed vehicle use. No noise sample was available to

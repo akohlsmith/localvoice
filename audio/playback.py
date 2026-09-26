@@ -1,10 +1,23 @@
 """Play back WAV audio through the default output device.
 
-play_wav_bytes_async starts playback and returns immediately; is_playing()
-and stop() let a caller (main.py's barge-in check) monitor and cut it off
-mid-sentence when VAD detects the user talking again. decode_wav_bytes is
-also used by main.py's echo canceller, which needs the same audio as a
-normalized float32 array to use as its reference signal.
+decode_wav_bytes is used both by play_wav_bytes_async below and by
+main.py's speak_with_barge_in, which needs the same audio as a
+normalized float32 array both as the echo canceller's reference signal
+and as what it hands to MicStream.play() (audio/capture.py) for actual
+playback.
+
+play_wav_bytes_async/is_playing/stop (this module's own separate
+output stream) are for standalone playback with no concurrent mic
+capture -- a one-off script, a notification sound, etc. Playback that
+happens *while* the mic is also being monitored (barge-in) goes
+through MicStream.play() instead, sharing one full-duplex stream with
+capture rather than opening a second, independently clocked one:
+running mic capture and this module's playback as two separate streams
+at the same time measurably caused intermittent crackling in the TTS
+output (see PLAN.md's barge-in section and tests/measure_output_underruns.py
+/ tests/compare_samplerate_crackle.py), even though neither stream ever
+reported a buffer underrun -- a single duplex stream removes the
+two-clock-domain path by construction.
 """
 
 import io
