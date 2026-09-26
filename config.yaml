@@ -171,3 +171,19 @@ tools:
     profile_dir: "~/.localvoice/brave-profile"
     headless: true                # true = no visible window; the tool runs in the background
     timeout_ms: 15000
+
+  search:
+    # Which provider web_search uses. web_fetch (loading one specific,
+    # already-known URL) always goes through the local Brave browser
+    # above, regardless of this setting -- only search has a choice.
+    #   "duckduckgo" — via the local Brave browser above, no API key
+    #                  needed. See tools/browser.py's docstring for why
+    #                  this isn't Brave Search itself (bot-check).
+    #   "firecrawl"  — Firecrawl's hosted search API
+    #                  (api.firecrawl.dev), no local browser involved
+    #                  for search. Needs FIRECRAWL_API_KEY set in
+    #                  dot-env (gitignored — never put a real key here
+    #                  in config.yaml, which is tracked in git).
+    provider: "firecrawl"
+    firecrawl:
+      result_limit: 5

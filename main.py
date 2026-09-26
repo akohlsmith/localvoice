@@ -7,6 +7,7 @@ Run `python main.py` after starting LM Studio's server and whisper.cpp's
 server (see README.md).
 """
 
+import os
 import re
 import sys
 
@@ -31,6 +32,24 @@ COMPACTION_NOTICE = "One moment, I'm compacting our conversation to keep things 
 def load_config(path="config.yaml"):
     with open(path, "r") as f:
         return yaml.safe_load(f)
+
+
+def load_dotenv(path="dot-env"):
+    """Tiny, dependency-free loader for secrets that must never land in
+    config.yaml (which is tracked in git) -- KEY=value lines, '#'
+    comments and blank lines ignored. Named dot-env rather than the
+    usual .env by explicit preference (dotfiles are hidden by default).
+    Only sets a var if it isn't already in the environment, so an
+    explicitly exported value always wins over the file."""
+    if not os.path.exists(path):
+        return
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            os.environ.setdefault(key.strip(), value.strip())
 
 
 def is_cancel_phrase(text: str, cancel_phrases) -> bool:
@@ -157,6 +176,7 @@ def speak_with_barge_in(
 
 
 def main():
+    load_dotenv()
     cfg = load_config()
     sample_rate = cfg["audio"]["sample_rate"]
 
@@ -244,6 +264,7 @@ def main():
     tool_dispatch = None
     system_prompt = cfg["llm"].get("system_prompt", "")
     browser_cfg = cfg.get("tools", {}).get("browser", {})
+    search_cfg = cfg.get("tools", {}).get("search", {})
     if browser_cfg.get("enabled"):
         from tools.browser import BraveTools
         from tools.registry import TOOL_SCHEMAS, build_dispatcher
@@ -253,8 +274,26 @@ def main():
             headless=browser_cfg.get("headless", True),
             timeout_ms=browser_cfg.get("timeout_ms", 15000),
         )
+
+        # web_fetch always uses `browser` above (the local Brave browser),
+        # regardless of this setting -- only web_search has a choice of
+        # provider. "firecrawl" needs FIRECRAWL_API_KEY (see dot-env,
+        # loaded above); missing it degrades to an error string from the
+        # tool call itself rather than failing startup, same as any other
+        # tool-call failure the model can see and react to.
+        search_tool = None
+        search_provider = search_cfg.get("provider", "duckduckgo")
+        if search_provider == "firecrawl":
+            from tools.firecrawl import FirecrawlSearch
+
+            firecrawl_cfg = search_cfg.get("firecrawl", {})
+            search_tool = FirecrawlSearch(
+                api_key=os.environ.get("FIRECRAWL_API_KEY"),
+                result_limit=firecrawl_cfg.get("result_limit", 5),
+            )
+
         tool_schemas = TOOL_SCHEMAS
-        tool_dispatch = build_dispatcher(browser)
+        tool_dispatch = build_dispatcher(browser, search_tool)
         # Only true when tools are actually registered with the API below --
         # telling the model it has tools it doesn't have is what caused it to
         # hallucinate its own tool-call syntax as spoken text in the first

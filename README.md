@@ -47,6 +47,16 @@ Edit `config.yaml`:
 - `tts.piper_binary` / `tts.piper_model` / `tts.piper_model_config` —
   paths to your Piper install and voice files, if not on PATH.
 
+If `tools.search.provider` is `"firecrawl"` (see `config.yaml`'s
+`tools.search` comments for the other option, `"duckduckgo"`, which
+needs no key), create a file named `dot-env` in the project root
+(gitignored — never put a real API key in `config.yaml`, which is
+tracked in git) with:
+
+```
+FIRECRAWL_API_KEY=<your key from firecrawl.dev>
+```
+
 ## Running it
 
 **1. Start LM Studio headlessly:**
@@ -78,8 +88,9 @@ Speak naturally — a short pause is what tells it you're done talking
 
 ## Status
 
-Phases 1–7 (barge-in), 8's wake word (off by default), and 9 (tool
-use — web search/fetch via an isolated Brave profile, off by default)
-are implemented. Not yet done: sentence-level streaming to cut
-perceived latency, the Orpheus TTS upgrade, and shell/exec tool access.
-See `PLAN.md`.
+Phases 1–9 are implemented: barge-in, wake word (off by default), and
+tool use (web search/fetch via an isolated Brave profile — web_search
+can use either DuckDuckGo or Firecrawl's search API; web_fetch is
+always the local browser). Not yet done: sentence-level streaming to
+cut perceived latency, the Orpheus TTS upgrade, and shell/exec tool
+access. See `PLAN.md`.

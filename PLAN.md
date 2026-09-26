@@ -146,6 +146,27 @@ without re-deriving the whole design.
       driving the same real Brave browser app via the same isolated
       profile. `web_fetch` was never affected (it loads whatever URL
       it's given, unrelated to either search provider).
+
+      `web_search` now has a second provider option:
+      `tools/firecrawl.py`'s `FirecrawlSearch` calls Firecrawl's hosted
+      search API (`api.firecrawl.dev/v1/search`) directly over HTTPS,
+      no local browser involved for search itself, returning
+      structured (sometimes pre-scraped, markdown-formatted) results. Selected via
+      `tools.search.provider` in `config.yaml` (`"duckduckgo"`, via the
+      browser as above, or `"firecrawl"`); `tools/registry.py`'s
+      `build_dispatcher` takes an optional separate `search_tool` so
+      `web_fetch` always stays on the local Brave browser regardless of
+      which one handles `web_search` — deliberately not routed through
+      Firecrawl's own `/v1/scrape` fetch endpoint, by explicit
+      instruction. The API key is read from `FIRECRAWL_API_KEY` in a
+      `dot-env` file (main.py's `load_dotenv()`, a tiny dependency-free
+      loader) — named `dot-env` rather than the usual `.env` by
+      explicit preference (dotfiles are hidden by default), and
+      gitignored either way: a real key must never land in
+      `config.yaml`, which is tracked in git. Verified end-to-end
+      through the real dispatcher and through a full `ChatClient.ask()`
+      round-trip — real tool call, real Firecrawl result, clean spoken
+      final answer.
 - [x] **10. Noise reduction** — for highway-speed vehicle use.
       `audio/noise_reduce.py`'s `NoiseReducer` runs two stages on every
       mic chunk (applied in the main loop before `turn_detector`/

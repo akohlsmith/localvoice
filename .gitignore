@@ -8,3 +8,4 @@ models/
 voices/
 cookies*.json
 tests/output/
+dot-env
