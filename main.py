@@ -24,11 +24,21 @@ from stt.whisper_client import WhisperClient
 from tts.tts_client import PiperTTS
 
 CHUNK_SAMPLES = 512  # required window size for Silero VAD at 16kHz
+DEFAULT_CANCEL_PHRASES = ["cancel", "nevermind", "never mind", "forget it"]
 
 
 def load_config(path="config.yaml"):
     with open(path, "r") as f:
         return yaml.safe_load(f)
+
+
+def is_cancel_phrase(text: str, cancel_phrases) -> bool:
+    """True if text, once normalized, IS one of cancel_phrases exactly --
+    not just contains one, so "cancel my 3pm meeting" is a real command,
+    not an abort."""
+    normalized = re.sub(r"[^a-z0-9\s]", "", text.lower()).strip()
+    normalized = re.sub(r"\s+", " ", normalized)
+    return normalized in cancel_phrases
 
 
 def speak_with_barge_in(
@@ -198,6 +208,9 @@ def main():
             silence_before_ms=wake_cfg.get("silence_before_ms", 1500),
         )
     listening_for_wake_word = wake_enabled
+    command_timeout_chunks = int(wake_cfg.get("command_timeout_ms", 3000) / barge_in_chunk_ms)
+    command_wait_chunks = 0
+    cancel_phrases = {p.strip().lower() for p in wake_cfg.get("cancel_phrases", DEFAULT_CANCEL_PHRASES)}
 
     tts = PiperTTS(
         binary=cfg["tts"]["piper_binary"],
@@ -261,6 +274,7 @@ def main():
                 match_index = match.start(1)
                 print("Wake word heard — listening...")
                 listening_for_wake_word = False
+                command_wait_chunks = 0
 
                 # If the user kept talking right after the wake word with no
                 # pause, whisper transcribes it all as one utterance — the
@@ -273,7 +287,24 @@ def main():
                     continue
                 text = remainder
             else:
+                # Easy to wake it up and then forget what you meant to ask.
+                # Track how long it's been pure silence (never even started
+                # speaking) since the wake word -- once that exceeds
+                # command_timeout_ms, give up and go back to waiting for the
+                # phrase rather than leaving the mic "listening" forever.
+                # Reset the moment real speech starts; from there the normal
+                # end-of-utterance silence_hangover_ms takes over as usual.
+                was_in_speech = turn_detector.in_speech
                 utterance = turn_detector.process_chunk(chunk)
+                if wake_enabled and not was_in_speech and not turn_detector.in_speech:
+                    command_wait_chunks += 1
+                    if command_wait_chunks >= command_timeout_chunks:
+                        print("No command heard — back to waiting for the wake word.")
+                        listening_for_wake_word = True
+                        command_wait_chunks = 0
+                        print(f'Waiting for "{wake_phrase}"...')
+                    continue
+                command_wait_chunks = 0
                 if utterance is None:
                     continue
 
@@ -281,6 +312,13 @@ def main():
                 if not text:
                     continue
             print(f"You said: {text}")
+
+            if is_cancel_phrase(text, cancel_phrases):
+                print("Cancelled.")
+                if wake_enabled:
+                    listening_for_wake_word = True
+                    print(f'Waiting for "{wake_phrase}"...')
+                continue
 
             reply = chat.ask(text)
             print(f"Assistant: {reply}")

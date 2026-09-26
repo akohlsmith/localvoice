@@ -81,6 +81,15 @@ wake_word:
   # never comes back from whisper.cpp as "gemma". If VAD itself is triggering on music
   # often, raise vad.speech_prob_threshold or vad.min_speech_ms instead.
 
+  # Easy to say the wake word and then forget what you meant to ask. If
+  # nothing is said at all within command_timeout_ms of the wake word,
+  # or the whole command is just one of cancel_phrases (exact match, not
+  # substring -- "cancel my 3pm meeting" still goes through), give up and
+  # go back to waiting for the wake word instead of leaving the mic
+  # "listening" indefinitely.
+  command_timeout_ms: 3000
+  cancel_phrases: ["cancel", "nevermind", "never mind", "forget it"]
+
 audio:
   sample_rate: 16000              # required by Silero VAD and whisper.cpp
   channels: 1

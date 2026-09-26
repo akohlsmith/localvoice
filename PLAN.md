@@ -63,6 +63,21 @@ without re-deriving the whole design.
         Re-verified against real audio: a wake phrase buried mid-sentence
         no longer matches; an isolated phrase and phrase-plus-query both
         still do.
+        Shortcut back to wake-word listening (easy to wake it and then
+        forget what you meant to ask): `main.py` tracks how long it's
+        been pure silence via `turn_detector.in_speech` transitions
+        (reset the instant real speech starts) since the wake word;
+        past `wake_word.command_timeout_ms` (3000ms default) with
+        nothing said, it gives up and goes back to waiting for the
+        phrase. Separately, `is_cancel_phrase()` checks the captured
+        command against `wake_word.cancel_phrases` ("cancel",
+        "nevermind", etc.) as an *exact* match after normalizing — not
+        substring, so "cancel my 3pm meeting" is still a real command —
+        and aborts the same way without ever reaching the LLM. Verified
+        the timeout state machine against real Silero VAD: exactly
+        93 chunks (~3000ms) of pure silence trips it; 2s of silence
+        followed by real speech correctly resets the counter and still
+        captures the utterance normally.
 - [x] **9. Tool use** — `llm/chat_client.py`'s `ask()` now runs a real
       tool-call loop (OpenAI-style `tools`/`tool_calls`, capped at
       `MAX_TOOL_ITERATIONS`), confirmed working against the loaded
