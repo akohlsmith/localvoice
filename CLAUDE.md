@@ -51,6 +51,12 @@ LM Studio chat completion -> Piper (TTS) -> speaker -> back to listening
 
 ## Conventions
 
+- Commit in small, focused commits — one feature or fix per commit,
+  not an omnibus commit bundling several. Commit as work lands rather
+  than saving it all up for one commit at the end of a session; this
+  also keeps each commit's own doc updates (PLAN.md/README.md status
+  lines) paired with the change that motivated them, instead of a
+  separate catch-up doc commit later.
 - Keep whisper.cpp and Piper as external processes, not embedded
   libraries — keeps each stage independently swappable and debuggable.
 - One responsibility per module; don't grow `main.py` into a place
