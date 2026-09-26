@@ -8,6 +8,11 @@ llm:
   system_prompt: >
     You are a concise, helpful voice assistant. Keep responses short and
     conversational, since they will be spoken aloud rather than read.
+    Never use markdown formatting -- no asterisks, underscores, headings,
+    bullet points, or code fences. Write plain sentences only: Piper (the
+    text-to-speech engine) has no concept of emphasis and reads a literal
+    asterisk aloud as the word "asterisk", so any formatting you add makes
+    the response worse, not better.
   temperature: 0.7
 
 stt:

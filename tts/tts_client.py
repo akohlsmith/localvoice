@@ -7,8 +7,38 @@ proven and you want a more expressive voice.
 """
 
 import os
+import re
 import subprocess
 import tempfile
+
+# Piper has no SSML/emphasis support at all (confirmed: `piper --help` has
+# only global params -- length-scale, noise-scale, volume -- no per-phrase
+# markup). Worse, it doesn't just ignore markdown asterisks, it reads them
+# aloud as the literal word "asterisk" (verified: "The *other* door" ->
+# "The asterisk other asterisk door"). The system_prompt in config.yaml
+# tells the model not to use markdown, but smaller/quantized models often
+# leak formatting habits anyway -- this is the defense-in-depth cleanup
+# for whatever slips through, not the primary fix.
+_MARKDOWN_LINK = re.compile(r"\[([^\]]+)\]\([^)]+\)")
+_MARKDOWN_HEADING = re.compile(r"^#{1,6}\s*", flags=re.MULTILINE)
+_MARKDOWN_BULLET = re.compile(r"^[ \t]*[-*+]\s+", flags=re.MULTILINE)
+_MARKDOWN_BOLD_STAR = re.compile(r"\*\*(.+?)\*\*")
+_MARKDOWN_BOLD_UNDERSCORE = re.compile(r"__(.+?)__")
+_MARKDOWN_ITALIC_STAR = re.compile(r"\*(.+?)\*")
+_MARKDOWN_ITALIC_UNDERSCORE = re.compile(r"(?<!\w)_(.+?)_(?!\w)")
+_MARKDOWN_CODE = re.compile(r"`([^`]+)`")
+
+
+def strip_markdown(text: str) -> str:
+    text = _MARKDOWN_LINK.sub(r"\1", text)
+    text = _MARKDOWN_HEADING.sub("", text)
+    text = _MARKDOWN_BULLET.sub("", text)
+    text = _MARKDOWN_BOLD_STAR.sub(r"\1", text)
+    text = _MARKDOWN_BOLD_UNDERSCORE.sub(r"\1", text)
+    text = _MARKDOWN_ITALIC_STAR.sub(r"\1", text)
+    text = _MARKDOWN_ITALIC_UNDERSCORE.sub(r"\1", text)
+    text = _MARKDOWN_CODE.sub(r"\1", text)
+    return text
 
 
 class PiperTTS:
@@ -26,6 +56,7 @@ class PiperTTS:
 
     def synthesize(self, text: str) -> bytes:
         """Returns WAV bytes for the given text."""
+        text = strip_markdown(text)
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             out_path = tmp.name
 
