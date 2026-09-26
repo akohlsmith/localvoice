@@ -4,7 +4,7 @@
 
 llm:
   base_url: "http://localhost:1234/v1"   # LM Studio's OpenAI-compatible server
-  model: "REPLACE_WITH_YOUR_LOADED_MODEL_ID"  # see `lms ps` once a model is loaded
+  model: "google/gemma-4-26b-a4b-qat"  # see `lms ps` once a model is loaded
   system_prompt: >
     You are a concise, helpful voice assistant. Keep responses short and
     conversational, since they will be spoken aloud rather than read.

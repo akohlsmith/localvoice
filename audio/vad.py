@@ -20,6 +20,7 @@ class SileroVAD:
             model="silero_vad",
             force_reload=False,
             onnx=False,
+            trust_repo=True,
         )
         self.model.eval()
 
