@@ -33,9 +33,18 @@ barge_in:
   # below rather than instead of it — belt and suspenders. Measured: with
   # speakers and mic on the same machine, raw mic input during TTS
   # playback sustained ~1.0 VAD confidence for 3.26s straight (this used
-  # to self-interrupt after ~64ms).
-  prob_threshold: 0.9              # vs vad's 0.5 — must be much more confident
-  consecutive_frames: 16           # ~512ms sustained, vs the old 2 (~64ms) -- applies AFTER the grace period below
+  # to self-interrupt after ~64ms). At 0.9/16, a real reply ("explain the
+  # Monty Hall paradox") still false-triggered 1/15 live runs (~6.7%),
+  # 3.76s in — past grace_period_ms below, not during it. Logged full
+  # per-chunk probability traces across 20 replays to find real margin
+  # rather than guessing: both observed false triggers came within 1
+  # chunk of still crossing even 0.93/16 (15/16 consecutive), so 0.93 and
+  # 24 are used together for real headroom rather than either bare
+  # minimum. Confirmed 0/20 replays of the same logged traces at these
+  # settings, then re-verified live (fresh trials, not just trace
+  # replay).
+  prob_threshold: 0.93
+  consecutive_frames: 24           # ~768ms sustained -- applies AFTER the grace period below
 
   # The adaptive filter needs a couple of seconds of real audio to converge.
   # Across repeated live test runs, every false trigger happened within the

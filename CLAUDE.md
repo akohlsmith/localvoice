@@ -47,6 +47,12 @@ LM Studio chat completion -> Piper (TTS) -> speaker -> back to listening
   profile). Off by default in `config.yaml`.
 - `scripts/` — one-off admin scripts, not part of the runtime loop
   (e.g. `prime_browser_profile.py`).
+- `tests/` — diagnostic/tuning scripts that need real hardware (mic,
+  speakers) and so can't run in CI, but are kept as real, reusable
+  tools rather than one-off throwaway scripts (e.g.
+  `measure_echo_delay.py`, `validate_echo_canceller.py`,
+  `test_mic_queue_drain.py`, `tune_barge_in_thresholds.py`). See
+  Conventions below.
 - `main.py` — the orchestration loop; deliberately the smallest file,
   since everything else is a call into an external tool or server.
 
@@ -64,6 +70,14 @@ LM Studio chat completion -> Piper (TTS) -> speaker -> back to listening
   where pipeline logic lives — new capability should go in its own
   module under `audio/`, `stt/`, `tts/`, or `llm/`.
 - Config changes go in `config.yaml`, not as new hardcoded constants.
+- Diagnostic/reproduction scripts written while debugging (echo
+  cancellation, barge-in false triggers, mic/queue timing, etc.) belong
+  in `tests/`, not `/tmp` or a scratch directory to be deleted after
+  use. Give each one a docstring covering what problem it diagnoses,
+  what it actually does, and the historical result/finding that led to
+  whatever fix followed — the point is that the next person (or agent)
+  debugging a similar symptom can re-run the same tool against new
+  hardware/audio instead of re-deriving it from scratch.
 
 ## Current status — see PLAN.md for the authoritative, checkable list
 

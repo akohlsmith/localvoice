@@ -7,3 +7,4 @@ __pycache__/
 models/
 voices/
 cookies*.json
+tests/output/

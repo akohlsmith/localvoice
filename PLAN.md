@@ -186,12 +186,23 @@ without re-deriving the whole design.
   self-interrupted just after the first sentence. Measured over 15
   trials replaying that exact reply (same text, same punctuation and
   paragraph breaks) end to end: 1/15 (~6.7%) false-triggered, at 3.76s
-  in -- just past grace_period_ms, not during it. This is a real
-  residual failure rate with the current settings, not something to
-  claim is fully solved. Options if it keeps happening, roughly in
-  order of effort: raise grace_period_ms (pushes the risk window later,
-  doesn't shrink it for a reply that runs long); raise
-  barge_in.consecutive_frames/prob_threshold further (reduces the rate
-  at the cost of slightly slower real-interruption response);
-  headphones (eliminates it entirely, since the mic then can't hear the
+  in -- just past grace_period_ms, not during it.
+
+  Resolved by raising the bar rather than guessing at new numbers:
+  `tests/tune_barge_in_thresholds.py` logs full per-chunk probability
+  traces across repeated live replays without ever actually stopping
+  playback (so a reply always completes regardless of what a threshold
+  would have done), then sweeps candidate (prob_threshold,
+  consecutive_frames) pairs against the logged data. Across 20 traces
+  of the same reply, 2 false-triggered at the old 0.9/16 -- and both
+  came within 1 chunk of still crossing even 0.93/16 (15/16
+  consecutive), so 0.93 and 24 were chosen together for real headroom
+  rather than either bare minimum. Confirmed 0/20 against the logged
+  traces, then re-verified live with actual stopping enabled
+  (`--confirm` mode, not just trace replay): 10/10 passed. Re-run that
+  script (or `tests/validate_echo_canceller.py` /
+  `tests/measure_echo_delay.py`) rather than guessing if this ever
+  needs retuning on different hardware -- headphones remain the
+  fallback if it keeps happening anyway (eliminates it entirely, since
+  the mic then can't hear the
   speakers at all).
