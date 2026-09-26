@@ -78,6 +78,42 @@ without re-deriving the whole design.
       this by running headed-but-off-screen instead (see its
       docstring). Shell/exec tool access was deliberately deferred —
       no code for it exists yet.
+- [x] **10. Noise reduction** — for highway-speed vehicle use.
+      `audio/noise_reduce.py`'s `NoiseReducer` runs two stages on every
+      mic chunk (applied in the main loop before `turn_detector`/
+      `wake_gate`, and in `speak_with_barge_in` after echo cancellation,
+      same order WebRTC's pipeline uses and for the same reason — AEC
+      assumes a linear mic/reference relationship that a nonlinear NR
+      stage would distort if run first): a high-pass biquad (RBJ Audio
+      EQ Cookbook formula, ~100Hz default) cutting deep engine rumble
+      unconditionally, then adaptive spectral subtraction (Boll 1979 +
+      Berouti et al.'s oversubtraction/floor) that continuously
+      estimates the noise spectrum from low-energy frames and subtracts
+      it from every frame, including ones with concurrent speech — the
+      part that actually matters at highway speed, since the noise
+      never stops. No noise sample was available, so defaults are
+      reasoned from documented vehicle cabin acoustics (highway cabin
+      noise ~65-71 dB(A), peaking 100-500Hz — [Road Noise and DSP: Tune
+      for the Highway](https://audiointensity.com/blogs/dsp/road-noise-compensation),
+      [GRAS: Road Noise Frequency](https://www.grasacoustics.com/industries/automotive/road-noise-testing))
+      rather than measured, and validated against a synthetic noise
+      proxy shaped to that spectrum, not a real recording.
+      Found and fixed a real tuning mistake before shipping it: the
+      first noise/non-noise decision (bottom 30th percentile of recent
+      frame energy, adapting fast) got contaminated by real speech
+      energy — inter-syllable dips aren't true silence, so ~30% of
+      frames got treated as "noise" regardless, and the noise estimate
+      drifted upward through an utterance (+48% over 6s in testing),
+      increasingly over-subtracting real speech. Measured against real
+      whisper.cpp transcription (synthesized speech + the noise proxy):
+      this made transcription *worse* than doing nothing. Fixed with a
+      stricter percentile (10th), slower adaptation (0.05), and longer
+      history (150 frames); re-tested at 10dB/5dB SNR with transcription
+      matching clean audio exactly, only degrading at unrealistically
+      harsh 0dB/-5dB SNR. Off by default (`noise_reduction.enabled:
+      false`); the module docstring and config.yaml's comments carry
+      the full reasoning for anyone retuning it against a real vehicle
+      recording.
 
 ## Known gaps / things to watch
 

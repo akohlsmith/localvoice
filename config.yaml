@@ -87,6 +87,22 @@ audio:
   input_device: null               # sounddevice device index; null = system default
   output_device: null
 
+noise_reduction:
+  # For highway-speed vehicle use. No noise sample was available to
+  # calibrate against, so these are reasoned from documented vehicle
+  # cabin acoustics (highway cabin noise ~65-71 dB(A), peaking 100-500Hz)
+  # and validated against a synthetic noise proxy shaped to that same
+  # spectrum, not a real recording -- retune once tested in the actual
+  # vehicle. See audio/noise_reduce.py's module docstring for the full
+  # reasoning, including a real tuning mistake found and fixed along the
+  # way (a naive noise estimate got contaminated by speech energy and
+  # made transcription worse, not better, until fixed).
+  enabled: false
+  highpass_hz: 100                 # cuts deep engine/structural rumble unconditionally; 0 disables this stage
+  oversubtraction: 1.2             # how aggressively to subtract the estimated noise spectrum; higher = more suppression, more "musical noise" artifact risk
+  spectral_floor: 0.1              # minimum gain per frequency bin (0-1); prevents bins being zeroed out entirely
+  noise_update_rate: 0.05          # how fast the noise estimate adapts to changing conditions (e.g. speeding up/slowing down)
+
 tools:
   browser:
     enabled: false

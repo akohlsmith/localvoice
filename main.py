@@ -16,6 +16,7 @@ import yaml
 from audio import playback
 from audio.capture import MicStream
 from audio.echo_cancel import EchoCanceller, resample_linear
+from audio.noise_reduce import NoiseReducer
 from audio.vad import SileroVAD, TurnDetector
 from audio.wake_word import WakeWordGate
 from llm.chat_client import ChatClient
@@ -38,6 +39,7 @@ def speak_with_barge_in(
     consecutive_frames,
     echo_canceller=None,
     grace_period_chunks=0,
+    noise_reducer=None,
 ) -> bool:
     """Plays a reply; stops if the mic picks up the user talking over it.
 
@@ -99,6 +101,15 @@ def speak_with_barge_in(
         else:
             scored_chunk = chunk
 
+        # Noise reduction after echo cancellation, not before: AEC's adaptive
+        # filter assumes a linear relationship between mic and reference
+        # signal, and noise reduction's per-bin gain is a nonlinear operation
+        # that would distort that assumption if applied first (the standard
+        # order in e.g. WebRTC's audio pipeline is AEC, then noise
+        # suppression, for the same reason).
+        if noise_reducer is not None:
+            scored_chunk = noise_reducer.process(scored_chunk)
+
         in_grace_period = chunk_index < grace_period_chunks
         chunk_index += 1
         if in_grace_period:
@@ -109,7 +120,7 @@ def speak_with_barge_in(
             consecutive_speech += 1
             if consecutive_speech >= consecutive_frames:
                 playback.stop()
-                turn_detector.process_chunk(chunk)
+                turn_detector.process_chunk(scored_chunk)
                 return True
         else:
             consecutive_speech = 0
@@ -151,6 +162,18 @@ def main():
             expected_delay_ms=echo_cfg.get("expected_delay_ms", 50.0),
             filter_length_ms=echo_cfg.get("filter_length_ms", 600.0),
             mu=echo_cfg.get("mu", 1.9),
+        )
+
+    noise_cfg = cfg.get("noise_reduction", {})
+    noise_reducer = None
+    if noise_cfg.get("enabled", False):
+        noise_reducer = NoiseReducer(
+            sample_rate=sample_rate,
+            chunk_size=CHUNK_SAMPLES,
+            highpass_hz=noise_cfg.get("highpass_hz", 100.0),
+            oversubtraction=noise_cfg.get("oversubtraction", 1.2),
+            spectral_floor=noise_cfg.get("spectral_floor", 0.1),
+            noise_update_rate=noise_cfg.get("noise_update_rate", 0.05),
         )
 
     stt = WhisperClient(
@@ -212,6 +235,9 @@ def main():
     mic.start()
     try:
         for chunk in mic.chunks():
+            if noise_reducer is not None:
+                chunk = noise_reducer.process(chunk)
+
             if listening_for_wake_word:
                 candidate = wake_gate.process_chunk(chunk)
                 if candidate is None:
@@ -268,6 +294,7 @@ def main():
                 barge_in_consecutive_frames,
                 echo_canceller,
                 grace_period_chunks,
+                noise_reducer,
             ):
                 print("(interrupted)")
 
