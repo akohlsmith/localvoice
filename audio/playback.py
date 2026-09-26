@@ -1,9 +1,8 @@
 """Play back WAV audio through the default output device.
 
-Kept deliberately simple for v1 (blocks until playback finishes). Barge-in
-(stopping playback if the user starts talking again) is a phase-7 item —
-sd.stop() is the hook to call from a VAD check running on another thread
-once that's added.
+play_wav_bytes_async starts playback and returns immediately; is_playing()
+and stop() let a caller (main.py's barge-in check) monitor and cut it off
+mid-sentence when VAD detects the user talking again.
 """
 
 import io
@@ -15,7 +14,8 @@ import sounddevice as sd
 _DTYPE_BY_SAMPWIDTH = {1: np.uint8, 2: np.int16, 4: np.int32}
 
 
-def play_wav_bytes(wav_bytes: bytes):
+def play_wav_bytes_async(wav_bytes: bytes):
+    """Starts playback without blocking. Use is_playing()/stop() to control it."""
     with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
         sample_rate = wf.getframerate()
         n_channels = wf.getnchannels()
@@ -31,6 +31,16 @@ def play_wav_bytes(wav_bytes: bytes):
         audio = audio.reshape(-1, n_channels)
 
     sd.play(audio, samplerate=sample_rate)
+
+
+def is_playing() -> bool:
+    stream = sd.get_stream()
+    return stream is not None and stream.active
+
+
+def play_wav_bytes(wav_bytes: bytes):
+    """Blocking playback, for callers that don't need barge-in (e.g. one-off tests)."""
+    play_wav_bytes_async(wav_bytes)
     sd.wait()
 
 

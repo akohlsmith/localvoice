@@ -11,19 +11,44 @@ import sys
 
 import yaml
 
+from audio import playback
 from audio.capture import MicStream
-from audio.playback import play_wav_bytes
 from audio.vad import SileroVAD, TurnDetector
 from llm.chat_client import ChatClient
 from stt.whisper_client import WhisperClient
 from tts.tts_client import PiperTTS
 
 CHUNK_SAMPLES = 512  # required window size for Silero VAD at 16kHz
+BARGE_IN_CONSECUTIVE_FRAMES = 2  # ~64ms of speech before treating it as a real interruption, not a blip
 
 
 def load_config(path="config.yaml"):
     with open(path, "r") as f:
         return yaml.safe_load(f)
+
+
+def speak_with_barge_in(wav_bytes, mic, turn_detector) -> bool:
+    """Plays a reply; stops immediately if the mic picks up the user talking.
+
+    Returns True if playback was cut short. The chunk that triggered the cut
+    is fed into turn_detector so capture of the new utterance starts right
+    away, without waiting for the next full loop iteration.
+    """
+    playback.play_wav_bytes_async(wav_bytes)
+    consecutive_speech = 0
+    for chunk in mic.chunks():
+        if not playback.is_playing():
+            return False
+        prob = turn_detector.vad.speech_prob(chunk)
+        if prob >= turn_detector.prob_threshold:
+            consecutive_speech += 1
+            if consecutive_speech >= BARGE_IN_CONSECUTIVE_FRAMES:
+                playback.stop()
+                turn_detector.process_chunk(chunk)
+                return True
+        else:
+            consecutive_speech = 0
+    return False
 
 
 def main():
@@ -84,7 +109,8 @@ def main():
             print(f"Assistant: {reply}")
 
             wav_bytes = tts.synthesize(reply)
-            play_wav_bytes(wav_bytes)
+            if speak_with_barge_in(wav_bytes, mic, turn_detector):
+                print("(interrupted)")
     except KeyboardInterrupt:
         print("\nStopping.")
     finally:

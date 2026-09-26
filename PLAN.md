@@ -23,9 +23,13 @@ without re-deriving the whole design.
 - [ ] **7. Tune for conversational latency** — stream the LLM response
       (`ChatClient.ask_streaming` exists but isn't wired into `main.py`
       yet), split it into sentences and send each to Piper as it
-      arrives rather than waiting for the full reply. Add barge-in:
-      stop playback (`audio.playback.stop()`) if VAD detects speech
-      while audio is playing.
+      arrives rather than waiting for the full reply.
+  - [x] Barge-in: `main.speak_with_barge_in` plays the reply via
+        `audio.playback.play_wav_bytes_async`, scores each incoming mic
+        chunk with the VAD while it plays, and calls `playback.stop()`
+        after 2 consecutive speech frames — cutting the assistant off
+        instead of waiting for the full reply to finish.
+  - [ ] Sentence-level streaming into Piper is still open.
 - [ ] **8. Upgrade the voice, optionally add a wake word** — swap Piper
       for Orpheus-3B (GGUF, loaded as a second model in LM Studio
       alongside the chat model — 64GB holds both comfortably), which
@@ -38,6 +42,7 @@ without re-deriving the whole design.
 - No persistence of conversation history across restarts.
 - No handling yet for whisper.cpp or Piper being unreachable/not
   started — the loop will just raise on the first request.
-- Playback in `audio/playback.py` blocks (`sd.wait()`); barge-in
-  (phase 7) will need this refactored to run on its own thread so VAD
-  can interrupt it mid-sentence.
+- Barge-in currently cuts off the whole reply, not just the remaining
+  audio — the full reply text is already in `chat.history` even if the
+  user only heard part of it spoken. Fine for now; revisit if it
+  causes the model to reference lines the user never heard.

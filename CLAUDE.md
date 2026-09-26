@@ -56,7 +56,8 @@ LM Studio chat completion -> Piper (TTS) -> speaker -> back to listening
 ## Current status — see PLAN.md for the authoritative, checkable list
 
 Phases 1–6 are implemented: a working end-to-end loop with a simple
-voice. Not yet done: sentence-level streaming latency tuning, barge-in,
-the Orpheus TTS upgrade, and an optional wake-word gate. Read PLAN.md
-before starting new work — it also lists known gaps (no conversation
-persistence, no reconnect handling for whisper.cpp/Piper being down).
+voice. Barge-in (phase 7) is also done. Not yet done: sentence-level
+streaming latency tuning, the Orpheus TTS upgrade, and an optional
+wake-word gate. Read PLAN.md before starting new work — it also lists
+known gaps (no conversation persistence, no reconnect handling for
+whisper.cpp/Piper being down).
