@@ -33,3 +33,13 @@ audio:
   channels: 1
   input_device: null               # sounddevice device index; null = system default
   output_device: null
+
+tools:
+  browser:
+    enabled: false
+    # Isolated Brave profile, started logged out of everything — separate
+    # from your everyday Brave profile/cookies. See scripts/prime_browser_profile.py
+    # to selectively copy specific site logins into it if a tool call needs one.
+    profile_dir: "~/.localvoice/brave-profile"
+    headless: true                # true = no visible window; the tool runs in the background
+    timeout_ms: 15000

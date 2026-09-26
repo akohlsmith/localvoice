@@ -85,11 +85,29 @@ def main():
         speaker=cfg["tts"].get("speaker"),
     )
 
+    browser = None
+    tool_schemas = None
+    tool_dispatch = None
+    browser_cfg = cfg.get("tools", {}).get("browser", {})
+    if browser_cfg.get("enabled"):
+        from tools.browser import BraveTools
+        from tools.registry import TOOL_SCHEMAS, build_dispatcher
+
+        browser = BraveTools(
+            profile_dir=browser_cfg["profile_dir"],
+            headless=browser_cfg.get("headless", True),
+            timeout_ms=browser_cfg.get("timeout_ms", 15000),
+        )
+        tool_schemas = TOOL_SCHEMAS
+        tool_dispatch = build_dispatcher(browser)
+
     chat = ChatClient(
         base_url=cfg["llm"]["base_url"],
         model=cfg["llm"]["model"],
         system_prompt=cfg["llm"].get("system_prompt", ""),
         temperature=cfg["llm"].get("temperature", 0.7),
+        tools=tool_schemas,
+        tool_dispatch=tool_dispatch,
     )
 
     print("Listening... (Ctrl+C to quit)")
@@ -115,6 +133,8 @@ def main():
         print("\nStopping.")
     finally:
         mic.stop()
+        if browser is not None:
+            browser.stop()
 
 
 if __name__ == "__main__":

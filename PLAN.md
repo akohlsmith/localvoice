@@ -36,6 +36,19 @@ without re-deriving the whole design.
       needs an added SNAC decode step to turn its output tokens into
       audio. Optionally gate listening behind a keyword (openWakeWord)
       so an always-on mic doesn't transcribe ambient conversation.
+- [x] **9. Tool use** — `llm/chat_client.py`'s `ask()` now runs a real
+      tool-call loop (OpenAI-style `tools`/`tool_calls`, capped at
+      `MAX_TOOL_ITERATIONS`), confirmed working against the loaded
+      Gemma model. `tools/registry.py` holds the schema + dispatch;
+      `tools/browser.py` implements `web_search`/`web_fetch` by driving
+      a real, isolated Brave profile (`tools.browser.profile_dir` in
+      `config.yaml`, separate from the everyday Brave profile/cookies).
+      Off by default (`tools.browser.enabled: false`) — flip it on to
+      use it. Note: true headless Chromium gets served a CAPTCHA by
+      search.brave.com specifically; `tools/browser.py` works around
+      this by running headed-but-off-screen instead (see its
+      docstring). Shell/exec tool access was deliberately deferred —
+      no code for it exists yet.
 
 ## Known gaps / things to watch
 
