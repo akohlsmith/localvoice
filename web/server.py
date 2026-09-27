@@ -164,9 +164,25 @@ class PhoneUIServer:
     async def _ws_handler(self, connection):
         await self._on_connection(connection)
 
+    # The only two paths worth gating: "/" is the entry point someone
+    # needs the shared URL to reach at all, and "/ws" is what actually
+    # lets a connected client use the mic/assistant. Static assets
+    # referenced *by* the already-gated index page (app.js,
+    # pcm-worklet.js) are requested by the browser via plain relative
+    # <script src="/app.js"> / addModule("/pcm-worklet.js") calls, which
+    # never carry the page's own "?token=..." query string -- browsers
+    # don't propagate a page's query string onto its sub-resource
+    # requests. Gating those too meant every static asset came back 403
+    # (a Forbidden text/plain body instead of real JS), which the
+    # browser can't execute -- app.js silently never ran at all,
+    # confirmed live: the page loaded, but stayed on "Loading..." and
+    # Enable did nothing, because the script that would have replaced
+    # that text and wired up the button never got a chance to run.
+    _TOKEN_GATED_PATHS = frozenset({"/", "/ws"})
+
     def _process_request(self, connection, request):
         parsed = urllib.parse.urlsplit(request.path)
-        if self.auth_token:
+        if self.auth_token and parsed.path in self._TOKEN_GATED_PATHS:
             token = urllib.parse.parse_qs(parsed.query).get("token", [None])[0]
             if token != self.auth_token:
                 body = b"Forbidden -- missing or incorrect ?token="

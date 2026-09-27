@@ -17,6 +17,7 @@ Usage (from anywhere; it locates the project root itself):
 """
 
 import asyncio
+import http.client
 import json
 import os
 import ssl
@@ -77,6 +78,38 @@ async def test_wrong_token_rejected():
     except InvalidStatus as exc:
         rejected = exc.response.status_code == 403
     check("wrong token is rejected with 403", rejected)
+
+
+def _https_get(path):
+    conn = http.client.HTTPSConnection("127.0.0.1", TEST_PORT, context=client_ssl_context(), timeout=5)
+    conn.request("GET", path)
+    resp = conn.getresponse()
+    body = resp.read()
+    conn.close()
+    return resp.status, body
+
+
+async def test_static_assets_load_without_token():
+    # Regression test for a real bug found live: index.html's own
+    # <script src="/app.js"> (and addModule("/pcm-worklet.js")) are
+    # requested by the browser via a plain relative URL, which never
+    # carries the page's own "?token=..." query string -- browsers
+    # don't propagate a page's query string onto its sub-resource
+    # requests. Gating every path on the token meant app.js always came
+    # back 403 (a Forbidden text/plain body instead of real JS), which
+    # the browser can't execute -- confirmed live: the page loaded, but
+    # never got past "Loading..." and Enable did nothing, because the
+    # script that would fix both never got a chance to run. "/" and
+    # "/ws" must still require the token; static assets must not.
+    status, body = await asyncio.to_thread(_https_get, "/app.js")
+    check("GET /app.js with no token succeeds (not 403)", status == 200)
+    check("GET /app.js returns real JS, not a Forbidden body", b"Forbidden" not in body)
+
+    status, _ = await asyncio.to_thread(_https_get, "/pcm-worklet.js")
+    check("GET /pcm-worklet.js with no token succeeds (not 403)", status == 200)
+
+    status, _ = await asyncio.to_thread(_https_get, "/")
+    check("GET / with no token is still rejected with 403", status == 403)
 
 
 async def test_audio_resampling_and_chunking(mic):
@@ -164,6 +197,7 @@ async def main():
         mic.start()
         try:
             await test_wrong_token_rejected()
+            await test_static_assets_load_without_token()
             await test_audio_resampling_and_chunking(mic)
             await test_play_and_is_playing(mic)
             await test_play_with_no_phone_connected(mic)
