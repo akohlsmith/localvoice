@@ -93,6 +93,24 @@ tool use (web search/fetch via an isolated Brave profile — web_search
 can use either DuckDuckGo or Firecrawl's search API; web_fetch is
 always the local browser). whisper.cpp/Piper/LM Studio going down
 mid-session now triggers a reconnect-and-wait loop instead of crashing
-(see `reconnect` in `config.yaml`). Not yet done: sentence-level
-streaming to cut perceived latency, the Orpheus TTS upgrade, and
-shell/exec tool access. See `PLAN.md`.
+(see `reconnect` in `config.yaml`). A phone can also stand in for this
+machine's own mic/speaker (`phone_ui` in `config.yaml`, off by default)
+-- see "Phone UI" below. Not yet done: sentence-level streaming to cut
+perceived latency, the Orpheus TTS upgrade, and shell/exec tool access.
+See `PLAN.md`.
+
+## Phone UI
+
+Set `phone_ui.enabled: true` in `config.yaml` and run `python main.py`
+as usual -- it prints a `https://<lan-ip>:8443/?token=...` URL to open
+on a phone on the same network. A self-signed cert is generated on
+first run (into `phone_ui.cert_dir`); the phone will show a "not
+private" warning the first time -- this is unavoidable for a
+self-signed cert and only needs accepting once. iOS requires HTTPS for
+microphone access (Safari and Chrome on iOS are both WebKit, so this
+applies to either), which is why this can't just be plain HTTP.
+
+Tap **Enable** to start streaming the phone's mic (requests microphone
+permission the first time); tap **Stop** to interrupt whatever the
+assistant is currently saying, the manual equivalent of the local
+barge-in.

@@ -9,6 +9,7 @@ server (see README.md).
 
 import os
 import re
+import socket
 import sys
 import time
 
@@ -19,6 +20,7 @@ from audio import playback
 from audio.capture import MicStream
 from audio.echo_cancel import EchoCanceller, resample_linear
 from audio.noise_reduce import NoiseReducer
+from audio.phone_stream import PhoneMicStream
 from audio.vad import SileroVAD, TurnDetector
 from audio.wake_word import WakeWordGate
 from llm.chat_client import ChatClient, LlmUnavailableError
@@ -82,6 +84,17 @@ def load_dotenv(path="dot-env"):
             os.environ.setdefault(key.strip(), value.strip())
 
 
+def get_lan_ip() -> str:
+    """No-dependency way to find this machine's LAN-facing IP, for
+    printing a URL a phone on the same network can actually reach: open
+    a UDP "connection" to a public address (nothing is sent -- UDP
+    connect() just picks a local address/route) and read back the local
+    address the OS would use."""
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+
+
 def is_cancel_phrase(text: str, cancel_phrases) -> bool:
     """True if text, once normalized, IS one of cancel_phrases exactly --
     not just contains one, so "cancel my 3pm meeting" is a real command,
@@ -123,6 +136,15 @@ def speak_with_barge_in(
     Returns True if playback was cut short. The chunk that triggered the cut
     is fed into turn_detector so capture of the new utterance starts right
     away, without waiting for the next full loop iteration.
+
+    mic.consume_stop_signal() is also checked every chunk -- always False
+    for the local MicStream, but True (once) after a phone's manual Stop
+    button tap when mic is a PhoneMicStream (audio/phone_stream.py). This
+    is checked *before* is_playing() deliberately: a phone Stop already
+    marks is_playing() False on the same message, so checking is_playing()
+    first would silently swallow the stop signal as a plain "finished
+    normally" (returns False, no "(interrupted)" print) instead of
+    reporting the deliberate interruption it actually was.
     """
     # Decoded and resampled to mic.sample_rate regardless of whether echo
     # cancellation is enabled: playback now goes out through mic's own
@@ -153,6 +175,10 @@ def speak_with_barge_in(
     chunk_index = 0
     ref_pos = 0
     for chunk in mic.chunks():
+        if mic.consume_stop_signal():
+            mic.stop_playback()
+            return True
+
         if not mic.is_playing():
             return False
 
@@ -210,13 +236,25 @@ def main():
     cfg = load_config()
     sample_rate = cfg["audio"]["sample_rate"]
 
-    mic = MicStream(
-        sample_rate=sample_rate,
-        chunk_samples=CHUNK_SAMPLES,
-        channels=cfg["audio"]["channels"],
-        device=cfg["audio"]["input_device"],
-        output_device=cfg["audio"]["output_device"],
-    )
+    phone_ui_cfg = cfg.get("phone_ui", {})
+    phone_ui_enabled = phone_ui_cfg.get("enabled", False)
+    if phone_ui_enabled:
+        mic = PhoneMicStream(
+            host=phone_ui_cfg.get("host", "0.0.0.0"),
+            port=phone_ui_cfg.get("port", 8443),
+            cert_dir=phone_ui_cfg.get("cert_dir", "~/.localvoice/phone_ui"),
+            auth_token=phone_ui_cfg.get("auth_token"),
+            sample_rate=sample_rate,
+            chunk_samples=CHUNK_SAMPLES,
+        )
+    else:
+        mic = MicStream(
+            sample_rate=sample_rate,
+            chunk_samples=CHUNK_SAMPLES,
+            channels=cfg["audio"]["channels"],
+            device=cfg["audio"]["input_device"],
+            output_device=cfg["audio"]["output_device"],
+        )
 
     vad = SileroVAD(sample_rate=sample_rate)
     turn_detector = TurnDetector(
@@ -236,7 +274,14 @@ def main():
 
     echo_cfg = barge_in_cfg.get("echo_cancel", {})
     echo_canceller = None
-    if echo_cfg.get("enabled", True):
+    # The NLMS canceller's expected_delay_ms/filter_length_ms were tuned
+    # for this Mac's own fixed CoreAudio mic/speaker path -- meaningless
+    # (and potentially harmful to VAD scoring) over a phone's own audio
+    # stack plus network jitter. Phone mode instead relies on the
+    # browser's own built-in echo cancellation (getUserMedia's
+    # echoCancellation constraint, set in web/static/app.js), same as
+    # any other WebRTC-based calling app would.
+    if echo_cfg.get("enabled", True) and not phone_ui_enabled:
         echo_canceller = EchoCanceller(
             sample_rate=sample_rate,
             expected_delay_ms=echo_cfg.get("expected_delay_ms", 50.0),
@@ -361,6 +406,11 @@ def main():
     )
     if chat.context_limit is None:
         print("(context length not available from this server -- automatic compaction disabled)")
+
+    if phone_ui_enabled:
+        lan_ip = get_lan_ip()
+        print(f"Open this on your phone: https://{lan_ip}:{mic.port}/?token={mic.auth_token}")
+        print('(your phone will show a "not private" warning once -- accept it; the cert is self-signed)')
 
     print("Listening... (Ctrl+C to quit)" if not listening_for_wake_word else f'Waiting for "{wake_phrase}"...')
     mic.start()

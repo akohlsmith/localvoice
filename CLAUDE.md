@@ -45,6 +45,13 @@ LM Studio chat completion -> Piper (TTS) -> speaker -> back to listening
 - `tools/` — tool schemas + dispatch (`registry.py`) and implementations
   (`browser.py`: `web_search`/`web_fetch` via an isolated Brave
   profile). Off by default in `config.yaml`.
+- `web/` — the phone UI's transport: `server.py` (HTTPS + WebSocket,
+  self-signed cert management) and `static/` (the phone-facing page,
+  `app.js`, an `AudioWorkletProcessor`). `audio/phone_stream.py`'s
+  `PhoneMicStream` is the audio-side counterpart, implementing the same
+  interface `audio/capture.py`'s `MicStream` does so `main.py` only
+  branches once (`phone_ui.enabled`) on which one to construct. Off by
+  default in `config.yaml`.
 - `scripts/` — one-off admin scripts, not part of the runtime loop
   (e.g. `prime_browser_profile.py`).
 - `tests/` — diagnostic/tuning scripts that need real hardware (mic,
@@ -91,4 +98,7 @@ tuning, the Orpheus TTS upgrade, and shell/exec tool access
 starting new work — it also lists known gaps (no conversation
 persistence across restarts; whisper.cpp/Piper/LM Studio going down
 mid-session now reconnects instead of crashing, verified live against
-real process failures for all three).
+real process failures for all three). Phone UI (phase 12: a phone's
+mic/speaker in place of this machine's own, off by default) is also
+done and verified end-to-end against real STT/LLM/TTS servers, but not
+yet on a real iPhone -- no device to test with in an agent session.

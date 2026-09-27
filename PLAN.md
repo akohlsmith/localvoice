@@ -228,6 +228,78 @@ without re-deriving the whole design.
       triggers, rather than guessing a number that could compact too
       early or too late — `main.py` prints a note at startup when this
       happens.
+- [x] **12. Phone UI** — lets a phone (Safari or Chrome on iOS — both
+      WebKit, identical behavior) act as the mic+speaker instead of this
+      machine's own, over a small page served by the Python process
+      itself. Two big buttons: **Enable** (starts/stops streaming the
+      phone's mic) and **Stop** (interrupts TTS playback, the manual
+      equivalent of barge-in). Off by default (`phone_ui.enabled: false`).
+
+      Deliberately built as a second implementation of the exact
+      interface `audio/capture.py`'s `MicStream` already exposes
+      (`start/stop/chunks/play/is_playing/stop_playback/drain`, plus one
+      new `consume_stop_signal()` method that `MicStream` gets as a
+      trivial always-`False` stub) — `audio/phone_stream.py`'s
+      `PhoneMicStream` is that second implementation, so `main.py` only
+      needed to pick which one to construct (`phone_ui.enabled`) and add
+      one extra check in `speak_with_barge_in`'s loop; STT/LLM/TTS and
+      wake word/noise reduction needed zero changes, since they were
+      already audio-source-agnostic.
+
+      `web/server.py`'s `PhoneUIServer` owns the transport: a `websockets`
+      server (new dependency) running its own asyncio event loop on a
+      dedicated background thread (the only other thread in the codebase
+      besides `MicStream`'s play-lock), serving `web/static/*` (the page,
+      `app.js`, an `AudioWorkletProcessor` for mic capture) and the
+      WebSocket endpoint from one port. HTTPS is mandatory, not a
+      preference: iOS only grants `getUserMedia` in a secure context, and
+      there's no user-facing override for that on iOS the way desktop
+      Chrome has one — so a self-signed cert is generated once via the
+      system `openssl` binary (subprocess, no new pip dependency) and
+      cached under `phone_ui.cert_dir`. The phone shows a "not private"
+      warning once; there's no way around that for a self-signed cert.
+      A shared-secret `?token=` query param (auto-generated if unset)
+      gates the page, since this listens on the LAN.
+
+      `PhoneMicStream` resamples incoming phone audio (native rate,
+      declared via a `hello` message) to 16kHz using the *already
+      existing* `audio/echo_cancel.py`'s `resample_linear` — no new
+      resampling code, and it keeps `app.js` maximally simple (it never
+      resamples). A background heartbeat thread keeps `chunks()` yielding
+      silent chunks whenever the phone isn't actively streaming (idle,
+      disconnected, disabled) — without it, `speak_with_barge_in`'s
+      `for chunk in mic.chunks(): ...` loop would block forever the first
+      time nothing was being streamed, since (unlike PortAudio's local
+      callback) nothing guarantees a phone produces data on its own.
+      `main.py` also forces the NLMS `EchoCanceller` off in phone mode
+      regardless of `barge_in.echo_cancel.enabled` — its fixed delay/
+      filter-length were tuned for this Mac's own CoreAudio path and are
+      meaningless (possibly harmful to VAD scoring) over a phone's own
+      audio stack plus network jitter; phone mode relies on the browser's
+      own built-in AEC (`getUserMedia`'s `echoCancellation` constraint)
+      instead, same as any WebRTC calling app would.
+
+      Verified two ways. (1) `tests/test_phone_stream.py`: a real
+      `websockets` client (a "fake phone") against the real server — real
+      TLS handshake with the real self-signed cert, real token gating
+      (wrong token gets a real 403), real resampling/re-chunking math,
+      `play()`/`is_playing()`/`stop_playback()`/`consume_stop_signal()`
+      state transitions including the Stop-button and
+      `playback_finished`-ack paths, and the heartbeat keeping `chunks()`
+      alive with silence when idle — 15/15 passing, no real hardware
+      needed. (2) A full live run: `main.py` started for real against the
+      already-running whisper.cpp/LM Studio/Piper, driven by the same
+      kind of fake-phone client streaming a real Piper-synthesized
+      utterance ("What is two plus two?") — real whisper.cpp
+      transcription, a real LM Studio reply ("Two plus two is four."),
+      real Piper synthesis, and a real WAV sent back over the WebSocket,
+      all through the actual `main.py` loop with no code path bypassed.
+
+      What's *not* verified: the actual on-device Safari/iOS experience
+      (the mic permission prompt, the self-signed cert warning flow, real
+      playback through a real phone speaker) — nothing in this
+      environment can drive a real iPhone, so that needs a human to check
+      once by hand.
 
 ## Known gaps / things to watch
 

@@ -173,6 +173,21 @@ noise_reduction:
   spectral_floor: 0.1              # minimum gain per frequency bin (0-1); prevents bins being zeroed out entirely
   noise_update_rate: 0.05          # how fast the noise estimate adapts to changing conditions (e.g. speeding up/slowing down)
 
+phone_ui:
+  # Lets an iPhone (Safari or Chrome -- both WebKit under iOS, same
+  # behavior) act as the mic+speaker instead of this machine's own,
+  # over a small HTTPS page served by web/server.py. Off by default --
+  # local MicStream behavior is completely unchanged unless this is
+  # true. See web/server.py's docstring for why HTTPS (a self-signed
+  # cert, generated once into cert_dir) is mandatory: iOS only grants
+  # microphone access in a secure context, and there's no user-facing
+  # override for that the way desktop Chrome has one.
+  enabled: false
+  host: "0.0.0.0"          # listen on all interfaces so a phone on the LAN can reach it
+  port: 8443
+  cert_dir: "~/.localvoice/phone_ui"   # self-signed cert/key cached here after first run
+  auth_token: null          # shared-secret query-param gate; auto-generated + printed at startup if unset
+
 reconnect:
   # How main.py responds when whisper.cpp, Piper, or LM Studio is
   # unreachable mid-session (killed, crashed, not started yet): rather
