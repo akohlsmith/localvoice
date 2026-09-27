@@ -103,6 +103,15 @@ class MicStream:
             self._play_audio = None
             self._play_pos = 0
 
+    def consume_stop_signal(self) -> bool:
+        """Always False for the local mic -- there's no manual "stop"
+        button on this input source. Exists so main.py's
+        speak_with_barge_in can check it uniformly regardless of which
+        MicStream-shaped object is in use; audio/phone_stream.py's
+        PhoneMicStream is the implementation where this actually does
+        something (the phone's Stop button)."""
+        return False
+
     def chunks(self):
         """Generator yielding chunk_samples-length float32 numpy arrays.
 
