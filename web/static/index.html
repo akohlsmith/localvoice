@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>LocalVoice</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body {
+    height: 100%; margin: 0; padding: 0;
+    background: #111; color: #eee;
+    font-family: -apple-system, system-ui, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    display: flex; flex-direction: column; align-items: stretch;
+    justify-content: center; gap: 24px;
+    padding: 24px; box-sizing: border-box;
+  }
+  #status {
+    text-align: center; font-size: 18px; min-height: 1.4em;
+    opacity: 0.85; white-space: pre-wrap;
+  }
+  button {
+    font-size: 28px; font-weight: 600;
+    border: none; border-radius: 20px;
+    padding: 40px 20px; color: #fff;
+    -webkit-user-select: none; user-select: none;
+  }
+  #enableBtn { background: #2d6a4f; }
+  #enableBtn.active { background: #1b4332; box-shadow: inset 0 0 0 4px #40916c; }
+  #stopBtn { background: #7f1d1d; }
+  #stopBtn:active, #enableBtn:active { filter: brightness(1.2); }
+</style>
+</head>
+<body>
+  <div id="status">Loading...</div>
+  <button id="enableBtn">Enable</button>
+  <button id="stopBtn">Stop</button>
+  <script src="/app.js"></script>
+</body>
+</html>
